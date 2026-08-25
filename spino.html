@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spionosaurus – Operation Labyrinth</title>
+<style>
+:root{--bg:#07111f;--panel:#0d1b2a;--wall:#4da3ff;--text:#e9f2ff;--accent:#ffd84d}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at top,#10243a,#050a12 70%);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}.wrap{width:min(94vw,920px);padding:18px;background:rgba(10,22,36,.92);border:1px solid #284968;border-radius:18px;box-shadow:0 18px 60px rgba(0,0,0,.45)}h1{margin:0 0 8px;font-size:clamp(22px,4vw,34px)}.sub{opacity:.8;margin-bottom:12px}.hud{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between;margin-bottom:10px;font-weight:700}.hud .left{display:flex;gap:18px;flex-wrap:wrap}button{border:0;border-radius:10px;padding:9px 14px;font-weight:800;cursor:pointer;background:#ffd84d;color:#101010}canvas{display:block;width:100%;height:auto;background:#050914;border:2px solid #23476c;border-radius:12px;image-rendering:pixelated}.help{margin-top:10px;font-size:14px;opacity:.78;line-height:1.45}kbd{background:#152a40;border:1px solid #315574;border-bottom-width:2px;padding:1px 6px;border-radius:5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>🕵️🦖 Spionosaurus – Operation Labyrinth</h1>
+<div class="sub">Sammle alle Geheimakten, ohne von den Wach-Dinos erwischt zu werden.</div>
+<div class="hud"><div class="left"><span>Punkte: <span id="score">0</span></span><span>Leben: <span id="lives">3</span></span><span>Akten übrig: <span id="left">0</span></span></div><button id="restart">Neu starten</button></div>
+<canvas id="game" width="840" height="600"></canvas>
+<div class="help">Steuerung: <kbd>←</kbd><kbd>↑</kbd><kbd>→</kbd><kbd>↓</kbd> oder <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>. Die goldenen Punkte sind Geheimakten.</div>
+</div>
+<script>
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');const scoreEl=document.getElementById('score'),livesEl=document.getElementById('lives'),leftEl=document.getElementById('left');document.getElementById('restart').onclick=resetGame;
+const TILE=30,COLS=28,ROWS=20;
+const rawMap=[
+'############################',
+'#............##............#',
+'#.####.#####.##.#####.####.#',
+'#.#  #.#   #.##.#   #.#  #.#',
+'#.####.#####.##.#####.####.#',
+'#..........................#',
+'#.####.##.########.##.####.#',
+'#......##....##....##......#',
+'######.##### ## #####.######',
+'     #.##          ##.#     ',
+'######.## ###  ### ##.######',
+'#........ #      # ........#',
+'#.####.## ######## ##.####.#',
+'#...##.##....##....##.##...#',
+'###.##.#####.##.#####.##.###',
+'#..........................#',
+'#.####.#####.##.#####.####.#',
+'#.#........#.##.#........#.#',
+'#...######........######...#',
+'############################'
+].map(r=>r.padEnd(COLS,' ').slice(0,COLS).split(''));
+let map,pellets,score,lives,gameOver,won,invulnUntil,player,guards,last=performance.now(),playerAcc=0,guardAcc=0;
+function resetGame(){map=rawMap.map(r=>r.slice());pellets=new Set();for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++)if(map[y][x]==='.')pellets.add(`${x},${y}`);score=0;lives=3;gameOver=false;won=false;invulnUntil=0;player={x:1,y:1,dir:{x:0,y:0},next:{x:0,y:0}};guards=[{x:13,y:9},{x:14,y:9},{x:13,y:10}];updateHud()}
+function updateHud(){scoreEl.textContent=score;livesEl.textContent=lives;leftEl.textContent=pellets.size}
+function isWall(x,y){return y<0||y>=ROWS||x<0||x>=COLS||map[y][x]==='#'}
+function move(ent,dx,dy){let nx=ent.x+dx,ny=ent.y+dy;if(!isWall(nx,ny)){ent.x=nx;ent.y=ny;return true}return false}
+function dirFor(k){if(k==='ArrowLeft'||k==='a'||k==='A')return{x:-1,y:0};if(k==='ArrowRight'||k==='d'||k==='D')return{x:1,y:0};if(k==='ArrowUp'||k==='w'||k==='W')return{x:0,y:-1};if(k==='ArrowDown'||k==='s'||k==='S')return{x:0,y:1}}
+addEventListener('keydown',e=>{let d=dirFor(e.key);if(d){player.next=d;e.preventDefault()}});
+function update(dt,now){if(gameOver||won)return;playerAcc+=dt;if(playerAcc>=1/7.5){playerAcc-=1/7.5;if(!isWall(player.x+player.next.x,player.y+player.next.y))player.dir=player.next;move(player,player.dir.x,player.dir.y);let k=`${player.x},${player.y}`;if(pellets.delete(k)){score+=10;updateHud()}if(pellets.size===0)won=true}
+guardAcc+=dt;if(guardAcc>=1/4){guardAcc-=1/4;for(let g of guards){let dirs=[{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}].filter(d=>!isWall(g.x+d.x,g.y+d.y));dirs.sort((a,b)=>(Math.abs(g.x+a.x-player.x)+Math.abs(g.y+a.y-player.y))-(Math.abs(g.x+b.x-player.x)+Math.abs(g.y+b.y-player.y)));let c=(Math.random()<.25&&dirs.length>1)?dirs[Math.floor(Math.random()*dirs.length)]:dirs[0];if(c)move(g,c.x,c.y)}}if(now>invulnUntil){for(let g of guards)if(g.x===player.x&&g.y===player.y){lives--;updateHud();invulnUntil=now+1700;player.x=1;player.y=1;player.dir={x:0,y:0};guards[0]={x:13,y:9};guards[1]={x:14,y:9};guards[2]={x:13,y:10};if(lives<=0)gameOver=true;break}}}
+function draw(){ctx.clearRect(0,0,840,600);for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){let px=x*TILE,py=y*TILE;if(isWall(x,y)){ctx.fillStyle='#17385b';ctx.fillRect(px,py,TILE,TILE);ctx.strokeStyle='#4da3ff';ctx.lineWidth=2;ctx.strokeRect(px+2,py+2,TILE-4,TILE-4)}else{ctx.fillStyle='#050914';ctx.fillRect(px,py,TILE,TILE)}}ctx.fillStyle='#ffd84d';for(let p of pellets){let[x,y]=p.split(',').map(Number);ctx.beginPath();ctx.arc(x*TILE+15,y*TILE+15,3.5,0,Math.PI*2);ctx.fill()}
+let px=player.x*TILE+15,py=player.y*TILE+15;if(!(performance.now()<invulnUntil&&Math.floor(performance.now()/120)%2===0)){ctx.save();ctx.translate(px,py);ctx.fillStyle='#6fd45e';ctx.beginPath();ctx.arc(0,0,11,0,Math.PI*2);ctx.fill();ctx.fillStyle='#263238';ctx.fillRect(-10,-14,20,4);ctx.beginPath();ctx.moveTo(-7,-14);ctx.lineTo(0,-21);ctx.lineTo(7,-14);ctx.closePath();ctx.fill();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(3,-2,3,0,Math.PI*2);ctx.fill();ctx.fillStyle='#111';ctx.beginPath();ctx.arc(4,-2,1.2,0,Math.PI*2);ctx.fill();ctx.restore()}
+['#ff6b6b','#b78cff','#66d9ff'].forEach((c,i)=>{let g=guards[i],gx=g.x*TILE+15,gy=g.y*TILE+15;ctx.fillStyle=c;ctx.beginPath();ctx.arc(gx,gy,10,0,Math.PI*2);ctx.fill();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(gx-3,gy-2,2.7,0,Math.PI*2);ctx.arc(gx+3,gy-2,2.7,0,Math.PI*2);ctx.fill();ctx.fillStyle='#111';ctx.beginPath();ctx.arc(gx-3,gy-2,1.1,0,Math.PI*2);ctx.arc(gx+3,gy-2,1.1,0,Math.PI*2);ctx.fill()});if(gameOver||won){ctx.fillStyle='rgba(0,0,0,.72)';ctx.fillRect(0,0,840,600);ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 44px system-ui';ctx.fillText(won?'MISSION ERFÜLLT!':'MISSION GESCHEITERT',420,282);ctx.font='22px system-ui';ctx.fillStyle='#ffd84d';ctx.fillText(won?`Alle Akten gesichert – ${score} Punkte`:'Klicke auf „Neu starten“',420,328)}}
+function loop(t){let dt=Math.min((t-last)/1000,.05);last=t;update(dt,t);draw();requestAnimationFrame(loop)}resetGame();requestAnimationFrame(loop);
+</script>
+</body></html>
