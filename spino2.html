@@ -1,0 +1,683 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spionosaurus – Flucht vor Prof. Dr. Tyrannus Greif</title>
+<style>
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    min-height:100vh;
+    display:grid;
+    place-items:center;
+    background:#08120d;
+    color:#eef7f0;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  }
+  .wrap{
+    width:min(96vw,980px);
+    padding:18px;
+    border:1px solid #315c45;
+    border-radius:18px;
+    background:#0d1d14;
+  }
+  h1{
+    margin:0 0 10px;
+    font-size:clamp(24px,4vw,36px);
+  }
+  .bar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    flex-wrap:wrap;
+    margin-bottom:10px;
+  }
+  .items{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+  .item{
+    padding:6px 10px;
+    border:1px solid #476b59;
+    border-radius:9px;
+    background:#14291e;
+    font-size:14px;
+    font-weight:800;
+  }
+  .used{
+    opacity:.32;
+    text-decoration:line-through;
+  }
+  button{
+    border:0;
+    border-radius:10px;
+    padding:8px 13px;
+    font-weight:800;
+    background:#f3d35c;
+    cursor:pointer;
+  }
+  canvas{
+    display:block;
+    width:100%;
+    height:auto;
+    border:2px solid #315c45;
+    border-radius:12px;
+    background:#173023;
+  }
+  .controls{
+    margin-top:10px;
+    opacity:.84;
+    font-size:14px;
+    line-height:1.5;
+  }
+  kbd{
+    background:#1b3428;
+    border:1px solid #476b59;
+    border-radius:5px;
+    padding:1px 7px;
+    margin-right:2px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🦖 Spionosaurus – Flucht vor Prof. Dr. Tyrannus Greif</h1>
+
+  <div class="bar">
+    <div class="items">
+      <span class="item" id="shieldItem">[1] 🛡️ Schild</span>
+      <span class="item" id="berryItem">[2] 🍓 Beere</span>
+      <span class="item" id="poopItem">[3] 💩 Kacki</span>
+    </div>
+    <button id="restart">Neu starten</button>
+  </div>
+
+  <canvas id="game" width="920" height="620"></canvas>
+
+  <div class="controls">
+    <kbd>Leertaste</kbd> starten / springen / neu starten &nbsp;
+    <kbd>STRG</kbd> ducken &nbsp;
+    <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> Gegenstand einsetzen &nbsp;
+    <kbd>P</kbd> Pause
+  </div>
+</div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+
+const restartBtn=document.getElementById("restart");
+const shieldItem=document.getElementById("shieldItem");
+const berryItem=document.getElementById("berryItem");
+const poopItem=document.getElementById("poopItem");
+
+const W=canvas.width,H=canvas.height;
+const LEFT=62, RIGHT=846, RUN=RIGHT-LEFT;
+const platformY=[190,350,534];
+const TOTAL=RUN*3;
+
+const backgroundImage=new Image();
+backgroundImage.src="spino_background.png";
+
+// Schwierigkeit: 4 / 5 / 6 Hindernisse.
+// Bewusst NICHT streng abwechselnd zwischen Springen und Ducken.
+const obstacles=[
+  // Ebene 1 – 4
+  {l:0,p:125,w:24,h:22,type:"ground"},
+  {l:0,p:300,w:28,h:28,type:"ground"},
+  {l:0,p:470,w:56,h:20,type:"low"},
+  {l:0,p:655,w:24,h:30,type:"ground"},
+
+  // Ebene 2 – 5
+  {l:1,p:95,w:50,h:20,type:"low"},
+  {l:1,p:220,w:48,h:20,type:"low"},
+  {l:1,p:345,w:26,h:28,type:"ground"},
+  {l:1,p:505,w:29,h:30,type:"ground"},
+  {l:1,p:660,w:52,h:20,type:"low"},
+
+  // Ebene 3 – 6
+  {l:2,p:80,w:24,h:24,type:"ground"},
+  {l:2,p:185,w:52,h:20,type:"low"},
+  {l:2,p:310,w:47,h:20,type:"low"},
+  {l:2,p:430,w:28,h:30,type:"ground"},
+  {l:2,p:555,w:24,h:27,type:"ground"},
+  {l:2,p:650,w:50,h:20,type:"low"}
+  // Danach bleibt bewusst eine freie Schlussstrecke bis zur Höhle.
+];
+
+let s;
+
+function reset(autoStart=false){
+  s={
+    started:autoStart,
+    paused:false,
+    progress:0,
+    hunterProgress:-255,
+
+    baseSpeed:126,
+    hunterBaseSpeed:100,
+
+    slowUntil:0,
+    hunterSlowUntil:0,
+    boostUntil:0,
+    shieldUntil:0,
+
+    jumpY:0,
+    jumpV:0,
+    jumping:false,
+    ducking:false,
+    invuln:0,
+
+    shieldUsed:false,
+    berryUsed:false,
+    poopUsed:false,
+    poopProgress:null,
+    poopTriggered:false,
+
+    message:autoStart ? "Los!" : "",
+    messageUntil:autoStart ? performance.now()+650 : 0,
+
+    won:false,
+    lost:false
+  };
+  refreshItems();
+}
+
+function refreshItems(){
+  shieldItem.classList.toggle("used",s.shieldUsed);
+  berryItem.classList.toggle("used",s.berryUsed);
+  poopItem.classList.toggle("used",s.poopUsed);
+}
+
+function routeInfo(progress){
+  const p=Math.max(0,Math.min(TOTAL-0.001,progress));
+  const level=Math.floor(p/RUN);
+  const local=p-level*RUN;
+  const dir=level===1 ? -1 : 1;
+  const x=dir===1 ? LEFT+local : RIGHT-local;
+  const y=platformY[level];
+  return {level,local,dir,x,y};
+}
+
+function showMessage(text,ms=1050){
+  s.message=text;
+  s.messageUntil=performance.now()+ms;
+}
+
+function startOrJump(){
+  if(s.paused) return;
+
+  if(s.won || s.lost){
+    reset(true);
+    return;
+  }
+
+  if(!s.started){
+    s.started=true;
+    showMessage("Los!",650);
+    return;
+  }
+
+  if(!s.jumping && !s.ducking){
+    s.jumpV=performance.now()<s.boostUntil ? -365 : -335;
+    s.jumping=true;
+  }
+}
+
+function togglePause(){
+  if(!s.started || s.won || s.lost) return;
+  s.paused=!s.paused;
+  if(s.paused) s.ducking=false;
+}
+
+function useShield(){
+  if(!s.started || s.paused || s.shieldUsed || s.won || s.lost) return;
+  s.shieldUsed=true;
+  s.shieldUntil=performance.now()+3000;
+  showMessage("🛡️ Schild!",850);
+  refreshItems();
+}
+
+function useBerry(){
+  if(!s.started || s.paused || s.berryUsed || s.won || s.lost) return;
+  s.berryUsed=true;
+  s.boostUntil=performance.now()+2600;
+  showMessage("🍓 Beere!",850);
+  refreshItems();
+}
+
+function usePoop(){
+  if(!s.started || s.paused || s.poopUsed || s.won || s.lost) return;
+  s.poopUsed=true;
+  s.poopProgress=Math.max(0,s.progress-24);
+  s.poopTriggered=false;
+  showMessage("💩 Kacki!",850);
+  refreshItems();
+}
+
+addEventListener("keydown",e=>{
+  if(e.code==="Space"){
+    e.preventDefault();
+    if(!e.repeat) startOrJump();
+    return;
+  }
+
+  if(e.key==="p" || e.key==="P"){
+    e.preventDefault();
+    if(!e.repeat) togglePause();
+    return;
+  }
+
+  if(e.key==="Control"){
+    e.preventDefault();
+    if(s.started && !s.paused && !s.jumping && !s.won && !s.lost){
+      s.ducking=true;
+    }
+    return;
+  }
+
+  if(e.key==="1"){
+    e.preventDefault();
+    useShield();
+  }else if(e.key==="2"){
+    e.preventDefault();
+    useBerry();
+  }else if(e.key==="3"){
+    e.preventDefault();
+    usePoop();
+  }
+});
+
+addEventListener("keyup",e=>{
+  if(e.key==="Control"){
+    e.preventDefault();
+    s.ducking=false;
+  }
+});
+
+restartBtn.onclick=()=>reset(false);
+
+function update(dt,now){
+  if(!s.started || s.paused || s.won || s.lost) return;
+
+  const boosted=now<s.boostUntil;
+  const slowed=now<s.slowUntil;
+
+  let playerSpeed=s.baseSpeed;
+  if(boosted) playerSpeed=182;
+  if(slowed) playerSpeed=boosted ? 96 : 72;
+  if(s.ducking) playerSpeed*=0.82;
+
+  const hunterLevel=routeInfo(Math.max(0,s.hunterProgress)).level;
+  let hunterSpeed=s.hunterBaseSpeed + hunterLevel*6;
+  if(now<s.hunterSlowUntil) hunterSpeed=51;
+
+  s.progress+=playerSpeed*dt;
+  s.hunterProgress+=hunterSpeed*dt;
+
+  if(s.jumping){
+    s.jumpV+=760*dt;
+    s.jumpY+=s.jumpV*dt;
+    if(s.jumpY>=0){
+      s.jumpY=0;
+      s.jumpV=0;
+      s.jumping=false;
+    }
+  }else{
+    s.jumpY=0;
+  }
+
+  if(
+    s.poopProgress!==null &&
+    !s.poopTriggered &&
+    s.hunterProgress>=s.poopProgress
+  ){
+    s.poopTriggered=true;
+    s.hunterSlowUntil=now+2200;
+    showMessage("💩 Prof. Dr. Tyrannus Greif rutscht aus!",1200);
+  }
+
+  if(now>s.invuln){
+    const info=routeInfo(s.progress);
+
+    for(const o of obstacles){
+      if(o.l!==info.level) continue;
+
+      const obsStart=o.l*RUN+o.p;
+      const obsEnd=obsStart+o.w;
+      const bodyLeft=s.progress-16;
+      const bodyRight=s.progress+16;
+      const horizontal=bodyRight>obsStart && bodyLeft<obsEnd;
+
+      if(!horizontal) continue;
+
+      let collision=false;
+
+      if(o.type==="ground"){
+        const dinoBottom=s.jumpY+18;
+        const obstacleTop=-o.h;
+        collision=dinoBottom>obstacleTop;
+      }else{
+        collision=!s.ducking;
+      }
+
+      if(collision){
+        s.invuln=now+650;
+
+        if(now<s.shieldUntil){
+          showMessage("🛡️ Geblockt!",750);
+        }else{
+          s.slowUntil=now+(boosted ? 1450 : 1200);
+          s.progress-=boosted ? 12 : 9;
+          showMessage(o.type==="low" ? "💥 Zu spät geduckt!" : "💥 Getroffen!",800);
+        }
+        break;
+      }
+    }
+  }
+
+  if(s.hunterProgress>=s.progress-28){
+    s.lost=true;
+  }
+
+  if(s.progress>=TOTAL){
+    s.progress=TOTAL;
+    s.won=true;
+  }
+}
+
+function drawBackground(){
+  if(backgroundImage.complete && backgroundImage.naturalWidth>0){
+    ctx.drawImage(backgroundImage,0,0,W,H);
+  }else{
+    ctx.fillStyle="#173023";
+    ctx.fillRect(0,0,W,H);
+  }
+}
+
+function obstacleXY(o){
+  const dir=o.l===1?-1:1;
+  const x=dir===1 ? LEFT+o.p : RIGHT-o.p-o.w;
+  const y=platformY[o.l];
+  return {x,y};
+}
+
+function drawObstacle(o){
+  const {x,y}=obstacleXY(o);
+
+  if(o.type==="ground"){
+    ctx.fillStyle="#704524";
+    ctx.fillRect(x,y-o.h,o.w,o.h);
+    ctx.strokeStyle="#3a2415";
+    ctx.lineWidth=2;
+    ctx.strokeRect(x,y-o.h,o.w,o.h);
+
+    ctx.fillStyle="#9a6a40";
+    const spikes=Math.max(1,Math.floor(o.w/10));
+    for(let i=0;i<spikes;i++){
+      const sx=x+4+i*10;
+      ctx.beginPath();
+      ctx.moveTo(sx,y-o.h);
+      ctx.lineTo(sx+4,y-o.h-6);
+      ctx.lineTo(sx+8,y-o.h);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }else{
+    const branchY=y-53;
+    ctx.fillStyle="#5f3c24";
+    ctx.fillRect(x,branchY,o.w,12);
+    ctx.strokeStyle="#3b2617";
+    ctx.lineWidth=2;
+    ctx.strokeRect(x,branchY,o.w,12);
+
+    ctx.strokeStyle="#6f4b2d";
+    ctx.lineWidth=4;
+    for(let i=10;i<o.w;i+=18){
+      ctx.beginPath();
+      ctx.moveTo(x+i,branchY+10);
+      ctx.lineTo(x+i-4,branchY+23);
+      ctx.stroke();
+    }
+  }
+}
+
+function drawPoop(){
+  if(s.poopProgress===null || s.poopTriggered) return;
+  const info=routeInfo(s.poopProgress);
+  ctx.save();
+  ctx.translate(info.x,info.y-8);
+  ctx.font="26px system-ui";
+  ctx.textAlign="center";
+  ctx.fillText("💩",0,0);
+  ctx.restore();
+}
+
+function drawSpino(){
+  const info=routeInfo(s.progress);
+  const now=performance.now();
+  const duckOffset=s.ducking ? 8 : 0;
+  const scaleY=s.ducking ? 0.68 : 1;
+  const x=info.x;
+  const y=info.y-25+s.jumpY+duckOffset;
+
+  ctx.save();
+  ctx.translate(x,y);
+  if(info.dir<0) ctx.scale(-1,1);
+  ctx.scale(1,scaleY);
+
+  if(now<s.shieldUntil && Math.floor(now/120)%2===0){
+    ctx.globalAlpha=.4;
+  }
+
+  ctx.fillStyle="#4f83d1";
+  ctx.beginPath();ctx.ellipse(0,0,23,13,0,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(20,-8,9,0,Math.PI*2);ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(-18,-2);ctx.lineTo(-38,-7);ctx.lineTo(-21,6);ctx.closePath();ctx.fill();
+
+  ctx.fillStyle="#8056c7";
+  for(let i=0;i<4;i++){
+    ctx.beginPath();
+    ctx.moveTo(-14+i*7,-10);
+    ctx.lineTo(-10+i*7,-27-(i%2)*4);
+    ctx.lineTo(-3+i*7,-9);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.fillStyle="#222";
+  ctx.fillRect(11,-21,21,4);
+  ctx.fillRect(16,-29,11,8);
+
+  ctx.fillStyle="#fff";
+  ctx.beginPath();ctx.arc(23,-10,3,0,Math.PI*2);ctx.fill();
+
+  ctx.fillStyle="#111";
+  ctx.beginPath();ctx.arc(24,-10,1.3,0,Math.PI*2);ctx.fill();
+
+  ctx.strokeStyle="#3f6db5";
+  ctx.lineWidth=4;
+  ctx.beginPath();
+  ctx.moveTo(-7,10);ctx.lineTo(-8,20);
+  ctx.moveTo(9,10);ctx.lineTo(10,20);
+  ctx.stroke();
+
+  ctx.globalAlpha=1;
+
+  if(now<s.shieldUntil){
+    ctx.strokeStyle="rgba(220,250,255,.95)";
+    ctx.lineWidth=3;
+    ctx.beginPath();
+    ctx.arc(0,-4,38,0,Math.PI*2);
+    ctx.stroke();
+  }
+
+  if(now<s.boostUntil){
+    ctx.strokeStyle="rgba(255,255,255,.85)";
+    ctx.lineWidth=3;
+    for(let i=0;i<3;i++){
+      ctx.beginPath();
+      ctx.moveTo(-43-i*8,-8+i*8);
+      ctx.lineTo(-62-i*8,-8+i*8);
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
+}
+
+function drawHunter(){
+  if(s.hunterProgress<0) return;
+
+  const info=routeInfo(s.hunterProgress);
+  const x=info.x,y=info.y-27;
+
+  ctx.save();
+  ctx.translate(x,y);
+  if(info.dir<0) ctx.scale(-1,1);
+
+  ctx.fillStyle="#252222";
+  ctx.beginPath();ctx.arc(0,-21,9,0,Math.PI*2);ctx.fill();
+  ctx.fillRect(-7,-12,14,27);
+
+  ctx.strokeStyle="#252222";
+  ctx.lineWidth=5;
+  ctx.beginPath();
+  ctx.moveTo(-4,12);ctx.lineTo(-7,23);
+  ctx.moveTo(4,12);ctx.lineTo(8,23);
+  ctx.stroke();
+
+  ctx.strokeStyle="#ddd";
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.moveTo(5,-4);ctx.lineTo(24,-24);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(30,-29,11,0,Math.PI*2);
+  ctx.stroke();
+
+  ctx.fillStyle="#111";
+  ctx.fillRect(-11,-34,22,3);
+  ctx.fillRect(-6,-42,12,8);
+
+  if(performance.now()<s.hunterSlowUntil){
+    ctx.font="18px system-ui";
+    ctx.fillText("💫",12,-43);
+  }
+
+  ctx.restore();
+}
+
+function drawMessage(){
+  if(performance.now()>=s.messageUntil || s.won || s.lost || s.paused) return;
+
+  ctx.fillStyle="rgba(0,0,0,.62)";
+  ctx.fillRect(W/2-205,35,410,36);
+
+  ctx.fillStyle="#ffe59a";
+  ctx.font="bold 16px system-ui";
+  ctx.textAlign="center";
+  ctx.fillText(s.message,W/2,59);
+  ctx.textAlign="left";
+}
+
+function drawStartScreen(){
+  if(s.started) return;
+
+  ctx.fillStyle="rgba(0,0,0,.55)";
+  ctx.fillRect(0,0,W,H);
+
+  ctx.textAlign="center";
+  ctx.fillStyle="#fff";
+  ctx.font="bold 34px system-ui";
+  ctx.fillText("🦖 Spionosaurus – Flucht vor",W/2,225);
+  ctx.fillText("Prof. Dr. Tyrannus Greif",W/2,267);
+
+  ctx.font="22px system-ui";
+  ctx.fillStyle="#f3d35c";
+  ctx.fillText("Leertaste zum Start",W/2,315);
+
+  ctx.textAlign="left";
+}
+
+function drawPauseScreen(){
+  if(!s.paused) return;
+
+  ctx.fillStyle="rgba(0,0,0,.58)";
+  ctx.fillRect(0,0,W,H);
+
+  ctx.textAlign="center";
+  ctx.fillStyle="#fff";
+  ctx.font="bold 46px system-ui";
+  ctx.fillText("PAUSE",W/2,275);
+
+  ctx.font="18px system-ui";
+  ctx.fillStyle="#f3d35c";
+  ctx.fillText("P zum Fortsetzen",W/2,315);
+  ctx.textAlign="left";
+}
+
+function drawEndScreen(){
+  if(!s.won && !s.lost) return;
+
+  ctx.fillStyle="rgba(0,0,0,.72)";
+  ctx.fillRect(0,0,W,H);
+
+  ctx.textAlign="center";
+  ctx.fillStyle="#fff";
+  ctx.font="bold 42px system-ui";
+  ctx.fillText(s.won?"MISSION ERFÜLLT!":"ERWISCHT!",W/2,270);
+
+  ctx.font="22px system-ui";
+  ctx.fillStyle=s.won?"#f3d35c":"#ffaaaa";
+  ctx.fillText(
+    s.won
+      ? "Spionosaurus hat die Höhle erreicht."
+      : "Prof. Dr. Tyrannus Greif hat Spionosaurus eingeholt.",
+    W/2,315
+  );
+
+  if(s.won){
+    ctx.font="bold 24px system-ui";
+    ctx.fillText("TEST-INFORMATION: SCHATTEN 23",W/2,365);
+  }
+
+  ctx.font="16px system-ui";
+  ctx.fillStyle="#ddd";
+  ctx.fillText("Leertaste für einen neuen Versuch",W/2,405);
+
+  ctx.textAlign="left";
+}
+
+function draw(){
+  drawBackground();
+  obstacles.forEach(drawObstacle);
+  drawPoop();
+  drawHunter();
+  drawSpino();
+  drawMessage();
+  drawStartScreen();
+  drawPauseScreen();
+  drawEndScreen();
+}
+
+let last=performance.now();
+
+function loop(now){
+  const dt=Math.min(.05,(now-last)/1000);
+  last=now;
+  update(dt,now);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+reset(false);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
