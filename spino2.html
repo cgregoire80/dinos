@@ -23,7 +23,7 @@
     background:#0d1d14;
   }
   h1{
-    margin:0 0 10px;
+    margin:0 0 18px;
     font-size:clamp(24px,4vw,36px);
   }
   .bar{
@@ -40,6 +40,9 @@
     flex-wrap:wrap;
   }
   .item{
+    display:flex;
+    align-items:flex-start;
+    gap:8px;
     padding:6px 10px;
     border:1px solid #476b59;
     border-radius:9px;
@@ -47,10 +50,9 @@
     font-size:14px;
     font-weight:800;
   }
-  .used{
-    opacity:.32;
-    text-decoration:line-through;
-  }
+  .item .key{ line-height:1.2; }
+  .item .label{ position:relative; top:2px; line-height:1.2; }
+  .used{ opacity:.32; text-decoration:line-through; }
   button{
     border:0;
     border-radius:10px;
@@ -68,10 +70,20 @@
     background:#173023;
   }
   .controls{
-    margin-top:10px;
+    margin-top:12px;
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:10px 30px;
     opacity:.84;
     font-size:14px;
     line-height:1.5;
+  }
+  .control-block{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    white-space:nowrap;
   }
   kbd{
     background:#1b3428;
@@ -88,9 +100,9 @@
 
   <div class="bar">
     <div class="items">
-      <span class="item" id="shieldItem">[1] 🛡️ Schild</span>
-      <span class="item" id="berryItem">[2] 🍓 Beere</span>
-      <span class="item" id="poopItem">[3] 💩 Kacki</span>
+      <span class="item" id="shieldItem"><span class="key">[1]</span><span class="label">🛡️ Schild</span></span>
+      <span class="item" id="berryItem"><span class="key">[2]</span><span class="label">🍓 Beere</span></span>
+      <span class="item" id="poopItem"><span class="key">[3]</span><span class="label">💩 Kacki</span></span>
     </div>
     <button id="restart">Neu starten</button>
   </div>
@@ -98,10 +110,12 @@
   <canvas id="game" width="920" height="620"></canvas>
 
   <div class="controls">
-    <kbd>Leertaste</kbd> starten / springen / neu starten &nbsp;
-    <kbd>STRG</kbd> ducken &nbsp;
-    <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> Gegenstand einsetzen &nbsp;
-    <kbd>P</kbd> Pause
+    <span class="control-block"><kbd>Leertaste</kbd><span>starten</span></span>
+    <span class="control-block"><kbd>A</kbd><kbd>D</kbd><span>/</span><kbd>←</kbd><kbd>→</kbd><span>bewegen</span></span>
+    <span class="control-block"><kbd>W</kbd><span>/</span><kbd>↑</kbd><span>springen</span></span>
+    <span class="control-block"><kbd>S</kbd><span>/</span><kbd>↓</kbd><span>ducken</span></span>
+    <span class="control-block"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><span>Gegenstand einsetzen</span></span>
+    <span class="control-block"><kbd>M</kbd><span>Sound an/aus</span></span>
   </div>
 </div>
 
@@ -120,58 +134,260 @@ const LEFT=62, RIGHT=846, RUN=RIGHT-LEFT;
 const platformY=[190,350,534];
 const TOTAL=RUN*3;
 
-// Dateien liegen zusammen mit spino2.html im Repository.
-const backgroundImage=new Image();
-backgroundImage.src="spino_background.png";
+const backgroundImages=[
+  new Image(),
+  new Image(),
+  new Image()
+];
+backgroundImages[0].src="spino_background_01.png";
+backgroundImages[1].src="spino_background_02.png";
+backgroundImages[2].src="spino_background_03.png";
+const startScreenImage=new Image();
+startScreenImage.src="spino_start_screen.png";
+const winScreenImage=new Image();
+winScreenImage.src="spino_win_screen.png";
+const failScreenImage=new Image();
+failScreenImage.src="spino_fail_screen.png";
 
-const spriteSpino=new Image();
-spriteSpino.src="sprite_obstacle_spino.png";
+const spriteSpinoStatic=new Image();
+spriteSpinoStatic.src="sprite_spino.png";
+const spriteGreifStatic=new Image();
+spriteGreifStatic.src="sprite_greif.png";
 
-const spriteGreif=new Image();
-spriteGreif.src="sprite_obstacle_greif.png";
+const spriteSpinoAnimated=new Image();
+spriteSpinoAnimated.src="sprite_spino_animated.png";
+const spriteGreifAnimated=new Image();
+spriteGreifAnimated.src="sprite_greif_animated.png";
 
-const spriteJump=new Image();
-spriteJump.src="sprite_obstacle_jump.png";
+const spriteJumpImages=[
+  new Image(),
+  new Image(),
+  new Image()
+];
+spriteJumpImages[0].src="sprite_obstacle_jump_01.png";
+spriteJumpImages[1].src="sprite_obstacle_jump_02.png";
+spriteJumpImages[2].src="sprite_obstacle_jump_03.png";
 
-const spriteDuck=new Image();
-spriteDuck.src="sprite_obstacle_duck.png";
+const spriteDuckImages=[
+  new Image(),
+  new Image(),
+  new Image()
+];
+spriteDuckImages[0].src="sprite_obstacle_duck_01.png";
+spriteDuckImages[1].src="sprite_obstacle_duck_02.png";
+spriteDuckImages[2].src="sprite_obstacle_duck_03.png";
 
-// Schwierigkeit: 4 / 5 / 6 Hindernisse.
-// Bewusst keine strenge Abwechslung von Springen und Ducken.
-const obstacles=[
-  // Ebene 1 – 4
-  {l:0,p:125,w:28,h:24,type:"ground"},
-  {l:0,p:300,w:30,h:28,type:"ground"},
-  {l:0,p:470,w:58,h:20,type:"low"},
-  {l:0,p:655,w:28,h:30,type:"ground"},
+let assetErrors=[];
+[...backgroundImages,startScreenImage,winScreenImage,failScreenImage,spriteSpinoStatic,spriteGreifStatic,spriteSpinoAnimated,spriteGreifAnimated,...spriteJumpImages,...spriteDuckImages].forEach(img=>{
+  img.onerror=()=>assetErrors.push(img.src.split('/').pop());
+});
 
-  // Ebene 2 – 5
-  {l:1,p:95,w:52,h:20,type:"low"},
-  {l:1,p:220,w:50,h:20,type:"low"},
-  {l:1,p:345,w:28,h:28,type:"ground"},
-  {l:1,p:505,w:31,h:30,type:"ground"},
-  {l:1,p:660,w:54,h:20,type:"low"},
+const baseVisualYOffset=[0,6,16];
+function getVisualYOffset(platformIndex){
+  const gameLevel=(s?.gameLevel)||1;
+  const levelAdjustments={
+    1:[10,20,-10],
+    2:[5,0,0],
+    3:[0,0,0]
+  };
+  const adj=(levelAdjustments[gameLevel]||[0,0,0])[platformIndex]||0;
+  return baseVisualYOffset[platformIndex]+adj;
+}
 
-  // Ebene 3 – 6
-  {l:2,p:80,w:28,h:24,type:"ground"},
-  {l:2,p:185,w:54,h:20,type:"low"},
-  {l:2,p:310,w:50,h:20,type:"low"},
-  {l:2,p:430,w:30,h:30,type:"ground"},
-  {l:2,p:555,w:28,h:27,type:"ground"},
-  {l:2,p:650,w:52,h:20,type:"low"}
-  // Freie Schlussstrecke bis zur Höhle.
+const obstacleLayouts={
+  // LEVEL 1 – komplett neu angeordnet
+  1:[
+    // Ebene 1 – 3 Hindernisse
+    {l:0,p:150,w:52,h:20,type:"low"},
+    {l:0,p:390,w:28,h:28,type:"ground"},
+    {l:0,p:625,w:30,h:30,type:"ground"},
+
+    // Ebene 2 – 4 Hindernisse
+    {l:1,p:110,w:28,h:28,type:"ground"},
+    {l:1,p:260,w:52,h:20,type:"low"},
+    {l:1,p:485,w:30,h:30,type:"ground"},
+    {l:1,p:650,w:54,h:20,type:"low"},
+
+    // Ebene 3 – 5 Hindernisse
+    {l:2,p:95,w:52,h:20,type:"low"},
+    {l:2,p:220,w:28,h:28,type:"ground"},
+    {l:2,p:405,w:50,h:20,type:"low"},
+    {l:2,p:545,w:30,h:30,type:"ground"},
+    {l:2,p:675,w:28,h:27,type:"ground"}
+  ],
+
+  // LEVEL 2 – ebenfalls komplett neu angeordnet
+  2:[
+    // Ebene 1 – 3 Hindernisse
+    {l:0,p:105,w:28,h:28,type:"ground"},
+    {l:0,p:330,w:52,h:20,type:"low"},
+    {l:0,p:610,w:30,h:30,type:"ground"},
+
+    // Ebene 2 – 4 Hindernisse
+    {l:1,p:90,w:28,h:28,type:"ground"},
+    {l:1,p:295,w:52,h:20,type:"low"},
+    {l:1,p:500,w:50,h:20,type:"low"},
+    {l:1,p:675,w:30,h:30,type:"ground"},
+
+    // Ebene 3 – 5 Hindernisse
+    {l:2,p:115,w:28,h:28,type:"ground"},
+    {l:2,p:250,w:52,h:20,type:"low"},
+    {l:2,p:395,w:30,h:30,type:"ground"},
+    {l:2,p:535,w:50,h:20,type:"low"},
+    {l:2,p:675,w:28,h:27,type:"ground"}
+  ],
+
+  // LEVEL 3 – bisherige Anordnung bleibt unverändert
+  3:[
+    {l:0,p:125,w:28,h:24,type:"ground"},
+    {l:0,p:470,w:58,h:20,type:"low"},
+    {l:0,p:655,w:28,h:30,type:"ground"},
+
+    {l:1,p:95,w:52,h:20,type:"low"},
+    {l:1,p:345,w:28,h:28,type:"ground"},
+    {l:1,p:505,w:31,h:30,type:"ground"},
+    {l:1,p:660,w:54,h:20,type:"low"},
+
+    {l:2,p:80,w:28,h:24,type:"ground"},
+    {l:2,p:185,w:54,h:20,type:"low"},
+    {l:2,p:430,w:30,h:30,type:"ground"},
+    {l:2,p:555,w:28,h:27,type:"ground"},
+    {l:2,p:650,w:52,h:20,type:"low"}
+  ]
+};
+
+function currentObstacles(){
+  return obstacleLayouts[(s?.gameLevel)||1] || obstacleLayouts[1];
+}
+
+const pickups=[
+  // Spiel-Level 1
+  {id:"g1_berry_l3", gameLevel:1, l:2, p:315, type:"berry"},   // sicher zwischen Hindernis 2 und 3
+
+  // Spiel-Level 2
+  {id:"g2_shield_l1", gameLevel:2, l:0, p:485, type:"shield"}, // sicher zwischen Hindernis 2 und 3
+  {id:"g2_berry_l2",  gameLevel:2, l:1, p:195, type:"berry"},  // sicher zwischen Hindernis 1 und 2
+
+  // Spiel-Level 3
+  {id:"g3_shield_l2", gameLevel:3, l:1, p:425, type:"shield"}
 ];
 
 let s;
+const keys=new Set();
+
+// --- Sound ---------------------------------------------------------------
+// Keine externen Audiodateien nötig: kleine Spieleffekte werden direkt
+// mit der Web Audio API erzeugt. M schaltet alle Effekte stumm/laut.
+let audioCtx=null;
+let soundMuted=false;
+
+function ensureAudio(){
+  if(soundMuted) return null;
+  const AudioContextClass=window.AudioContext || window.webkitAudioContext;
+  if(!AudioContextClass) return null;
+  if(!audioCtx) audioCtx=new AudioContextClass();
+  if(audioCtx.state==="suspended") audioCtx.resume();
+  return audioCtx;
+}
+
+function tone(freq,duration=0.10,type="sine",volume=0.05,delay=0){
+  const ac=ensureAudio();
+  if(!ac) return;
+
+  const start=ac.currentTime+delay;
+  const osc=ac.createOscillator();
+  const gain=ac.createGain();
+
+  osc.type=type;
+  osc.frequency.setValueAtTime(freq,start);
+
+  gain.gain.setValueAtTime(0.0001,start);
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.0002,volume),start+0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001,start+duration);
+
+  osc.connect(gain);
+  gain.connect(ac.destination);
+  osc.start(start);
+  osc.stop(start+duration+0.03);
+}
+
+function sfx(name){
+  if(soundMuted) return;
+
+  switch(name){
+    case "start":
+      tone(330,.08,"triangle",.035,0);
+      tone(495,.10,"triangle",.04,.08);
+      break;
+    case "jump":
+      tone(300,.08,"square",.025,0);
+      tone(470,.12,"triangle",.035,.055);
+      break;
+    case "shield":
+      tone(720,.08,"sine",.035,0);
+      tone(960,.11,"sine",.03,.065);
+      break;
+    case "berry":
+      tone(440,.07,"triangle",.03,0);
+      tone(660,.07,"triangle",.035,.06);
+      tone(880,.11,"triangle",.035,.12);
+      break;
+    case "poop":
+      tone(170,.08,"sawtooth",.025,0);
+      tone(120,.12,"sawtooth",.025,.06);
+      break;
+    case "hit":
+      tone(145,.13,"square",.04,0);
+      tone(95,.16,"sawtooth",.03,.07);
+      break;
+    case "block":
+      tone(760,.07,"square",.025,0);
+      tone(520,.10,"triangle",.025,.045);
+      break;
+    case "slip":
+      tone(430,.06,"triangle",.03,0);
+      tone(330,.07,"triangle",.03,.045);
+      tone(230,.12,"triangle",.035,.095);
+      break;
+    case "win":
+      tone(392,.10,"triangle",.035,0);
+      tone(523,.10,"triangle",.04,.10);
+      tone(659,.12,"triangle",.04,.20);
+      tone(784,.20,"triangle",.045,.31);
+      break;
+    case "fail":
+      tone(260,.13,"sawtooth",.035,0);
+      tone(196,.16,"sawtooth",.035,.12);
+      tone(130,.24,"sawtooth",.04,.27);
+      break;
+  }
+}
+
+function toggleMute(){
+  soundMuted=!soundMuted;
+  if(soundMuted && audioCtx && audioCtx.state==="running"){
+    audioCtx.suspend();
+  }else if(!soundMuted){
+    ensureAudio();
+  }
+
+  if(s && s.started && !s.won && !s.lost){
+    showMessage(soundMuted ? "🔇 Sound aus" : "🔊 Sound an",900);
+  }
+}
 
 function reset(autoStart=false){
+  keys.clear();
   s={
     started:autoStart,
     paused:false,
     progress:0,
+    playerLevel:0,
     hunterProgress:-255,
+    hunterFrozen:false,
 
-    baseSpeed:126,
+    baseSpeed:150,
+    currentPlayerSpeed:150,
     hunterBaseSpeed:100,
 
     slowUntil:0,
@@ -184,18 +400,31 @@ function reset(autoStart=false){
     jumping:false,
     ducking:false,
     invuln:0,
+    ouchUntil:0,
 
+    // false = Item aktuell verfügbar. Spielstart: alle drei Items vorhanden.
     shieldUsed:false,
     berryUsed:false,
     poopUsed:false,
-    poopProgress:null,
-    poopTriggered:false,
 
-    message:autoStart ? "Los!" : "",
-    messageUntil:autoStart ? performance.now()+650 : 0,
+    // Mehrere abgelegte Kackis können gleichzeitig auf dem Spielfeld liegen.
+    poops:[],
+    collectedPickupIds:new Set(),
+
+    message:autoStart ? "Lauf, Forr-ähh … Spiono, lauf!" : "",
+    messageUntil:autoStart ? performance.now()+4400 : 0,
 
     won:false,
-    lost:false
+    lost:false,
+    facing:1,
+    spinoHeldFrame:0,
+
+    // Drei komplette Durchläufe des Parcours.
+    gameLevel:1,
+    transitioning:false,
+    transitionStart:0,
+    transitionDuration:900,
+    transitionResetDone:false
   };
   refreshItems();
 }
@@ -204,6 +433,51 @@ function refreshItems(){
   shieldItem.classList.toggle("used",s.shieldUsed);
   berryItem.classList.toggle("used",s.berryUsed);
   poopItem.classList.toggle("used",s.poopUsed);
+}
+
+function beginLevelTransition(now){
+  s.transitioning=true;
+  s.transitionStart=now;
+  s.transitionResetDone=false;
+
+  // Keine Steuerung aus dem alten Durchlauf "mitnehmen".
+  keys.clear();
+  s.ducking=false;
+}
+
+function resetRouteForNextLevel(){
+  s.gameLevel++;
+
+  s.progress=0;
+  s.playerLevel=0;
+  s.hunterProgress=-255;
+
+  s.jumpY=0;
+  s.jumpV=0;
+  s.jumping=false;
+  s.ducking=false;
+  s.invuln=0;
+
+  // Kurzzeiteffekte enden beim Levelwechsel.
+  s.slowUntil=0;
+  s.hunterSlowUntil=0;
+  s.boostUntil=0;
+  s.shieldUntil=0;
+
+  // Bereits verwendete Gegenstände bleiben verbraucht.
+  // Abgelegte Kackis gehören nur zum aktuellen Spielfeld-Durchlauf.
+  s.poops=[];
+
+  s.facing=1;
+  s.spinoHeldFrame=0;
+
+  if(s.gameLevel===3){
+    s.message="🦏 Endspurt, gleich hast Du es geschafft!";
+    s.messageUntil=performance.now()+4400;
+  }else{
+    s.message="";
+    s.messageUntil=0;
+  }
 }
 
 function routeInfo(progress){
@@ -221,155 +495,244 @@ function showMessage(text,ms=1050){
   s.messageUntil=performance.now()+ms;
 }
 
-function startOrJump(){
+function startOrRestart(){
   if(s.paused) return;
-
-  if(s.won || s.lost){
-    reset(true);
-    return;
-  }
-
+  if(s.won || s.lost){ reset(true); return; }
   if(!s.started){
     s.started=true;
-    showMessage("Los!",650);
-    return;
+    sfx("start");
+    showMessage("Lauf, Forr-ähh … Spiono, lauf!",4400);
   }
+}
 
+function jump(){
+  if(!s.started || s.paused || s.transitioning || s.won || s.lost) return;
   if(!s.jumping && !s.ducking){
     s.jumpV=performance.now()<s.boostUntil ? -365 : -335;
     s.jumping=true;
+    sfx("jump");
   }
 }
 
 function togglePause(){
   if(!s.started || s.won || s.lost) return;
   s.paused=!s.paused;
-  if(s.paused) s.ducking=false;
+  if(s.paused){ s.ducking=false; keys.clear(); }
 }
 
 function useShield(){
-  if(!s.started || s.paused || s.shieldUsed || s.won || s.lost) return;
+  if(!s.started || s.paused || s.transitioning || s.shieldUsed || s.won || s.lost) return;
   s.shieldUsed=true;
   s.shieldUntil=performance.now()+3000;
+  sfx("shield");
   showMessage("🛡️ Schild!",850);
   refreshItems();
 }
 
 function useBerry(){
-  if(!s.started || s.paused || s.berryUsed || s.won || s.lost) return;
+  if(!s.started || s.paused || s.transitioning || s.berryUsed || s.won || s.lost) return;
   s.berryUsed=true;
+  if(s.poopUsed) s.poopUsed=false; // Wenn kein Kacki vorhanden, gibt die Beere genau 1 neues Kacki.
   s.boostUntil=performance.now()+2600;
+  sfx("berry");
   showMessage("🍓 Beere!",850);
   refreshItems();
 }
 
 function usePoop(){
-  if(!s.started || s.paused || s.poopUsed || s.won || s.lost) return;
+  if(!s.started || s.paused || s.transitioning || s.poopUsed || s.won || s.lost) return;
   s.poopUsed=true;
-  s.poopProgress=Math.max(0,s.progress-24);
-  s.poopTriggered=false;
+
+  s.poops.push({
+    progress:Math.max(0,s.progress-24),
+    triggered:false
+  });
+
+  sfx("poop");
   showMessage("💩 Kacki!",850);
   refreshItems();
 }
 
 addEventListener("keydown",e=>{
+  const movementKeys=["a","A","d","D","s","S","ArrowLeft","ArrowRight","ArrowUp","ArrowDown"];
+  if(movementKeys.includes(e.key)) e.preventDefault();
+
+  if(s && s.transitioning && movementKeys.includes(e.key)) return;
+
   if(e.code==="Space"){
     e.preventDefault();
-    if(!e.repeat) startOrJump();
+    if(!e.repeat) startOrRestart();
     return;
   }
-
   if(e.key==="p" || e.key==="P"){
     e.preventDefault();
     if(!e.repeat) togglePause();
     return;
   }
-
-  if(e.key==="Control"){
+  if(e.key==="m" || e.key==="M"){
     e.preventDefault();
-    if(s.started && !s.paused && !s.jumping && !s.won && !s.lost){
-      s.ducking=true;
+    if(!e.repeat) toggleMute();
+    return;
+  }
+  if(e.key==="o" || e.key==="O"){
+    e.preventDefault();
+    if(!e.repeat && s.started && !s.won && !s.lost){ s.hunterFrozen=!s.hunterFrozen; }
+    return;
+  }
+  if(e.key==="l" || e.key==="L"){
+    e.preventDefault();
+    if(!e.repeat && s.started && !s.paused && !s.transitioning && !s.won && !s.lost){
+      if(s.gameLevel<3){
+        beginLevelTransition(performance.now());
+      }else{
+        s.won=true;
+        sfx("win");
+      }
     }
     return;
   }
-
-  if(e.key==="1"){
+  if(e.key==="w" || e.key==="W" || e.key==="ArrowUp"){
     e.preventDefault();
-    useShield();
-  }else if(e.key==="2"){
-    e.preventDefault();
-    useBerry();
-  }else if(e.key==="3"){
-    e.preventDefault();
-    usePoop();
+    if(!e.repeat) jump();
+    return;
   }
+  if(e.key==="1"){ e.preventDefault(); useShield(); return; }
+  if(e.key==="2"){ e.preventDefault(); useBerry(); return; }
+  if(e.key==="3"){ e.preventDefault(); usePoop(); return; }
+  keys.add(e.key);
 });
 
-addEventListener("keyup",e=>{
-  if(e.key==="Control"){
-    e.preventDefault();
-    s.ducking=false;
-  }
-});
-
+addEventListener("keyup",e=>{ keys.delete(e.key); });
 restartBtn.onclick=()=>reset(false);
 
 function update(dt,now){
   if(!s.started || s.paused || s.won || s.lost) return;
 
+  if(s.transitioning){
+    const elapsed=now-s.transitionStart;
+    const half=s.transitionDuration/2;
+
+    if(!s.transitionResetDone && elapsed>=half){
+      resetRouteForNextLevel();
+      s.transitionResetDone=true;
+    }
+
+    if(elapsed>=s.transitionDuration){
+      s.transitioning=false;
+      s.transitionResetDone=false;
+    }
+    return;
+  }
+
   const boosted=now<s.boostUntil;
   const slowed=now<s.slowUntil;
 
   let playerSpeed=s.baseSpeed;
-  if(boosted) playerSpeed=182;
-  if(slowed) playerSpeed=boosted ? 96 : 72;
-  if(s.ducking) playerSpeed*=0.82;
+  if(boosted) playerSpeed*=1.5;
+  if(slowed) playerSpeed*=0.5;
+
+  const leftHeld=keys.has("a") || keys.has("A") || keys.has("ArrowLeft");
+  const rightHeld=keys.has("d") || keys.has("D") || keys.has("ArrowRight");
+  s.ducking=!s.jumping && (keys.has("s") || keys.has("S") || keys.has("ArrowDown"));
+
+  if(s.ducking && !slowed) playerSpeed*=0.75;
+  s.currentPlayerSpeed=playerSpeed;
+
+  let screenDirection=0;
+  if(leftHeld && !rightHeld) screenDirection=-1;
+  if(rightHeld && !leftHeld) screenDirection=1;
+
+  if(screenDirection!==0){
+    s.facing=screenDirection;
+    const info=routeInfo(s.progress);
+    const delta=screenDirection * info.dir * playerSpeed * dt;
+    let next=s.progress+delta;
+    const min=s.playerLevel*RUN + (s.playerLevel===0 ? 0 : 0.001);
+    const max=(s.playerLevel+1)*RUN;
+
+    if(delta>0 && next>=max){
+      if(s.playerLevel<2){
+        s.playerLevel++;
+        s.progress=max+0.001;
+
+        // Gewünschte Textmeldungen nur an den festgelegten Stellen:
+        // Text2: Spiel-Level 2, Ebene 2
+        if(s.gameLevel===2 && s.playerLevel===1){
+          showMessage("🦕 Nun gib aber mal Hackengas, Spiono!",4400);
+        }
+      }else{
+        s.progress=TOTAL;
+
+        if(s.gameLevel<3){
+          beginLevelTransition(now);
+        }else{
+          s.won=true;
+          sfx("win");
+        }
+      }
+    }else{
+      s.progress=Math.max(min,Math.min(max-0.001,next));
+    }
+  }
 
   const hunterLevel=routeInfo(Math.max(0,s.hunterProgress)).level;
-  let hunterSpeed=s.hunterBaseSpeed + hunterLevel*6;
+  const hunterGameFactor = s.gameLevel===2 ? 1.10 : (s.gameLevel===3 ? 1.20 : 1);
+  let hunterSpeed=(s.hunterBaseSpeed + hunterLevel*10) * hunterGameFactor;
   if(now<s.hunterSlowUntil) hunterSpeed=51;
-
-  s.progress+=playerSpeed*dt;
-  s.hunterProgress+=hunterSpeed*dt;
+  if(!s.hunterFrozen) s.hunterProgress+=hunterSpeed*dt;
 
   if(s.jumping){
     s.jumpV+=760*dt;
     s.jumpY+=s.jumpV*dt;
-    if(s.jumpY>=0){
-      s.jumpY=0;
-      s.jumpV=0;
-      s.jumping=false;
+    if(s.jumpY>=0){ s.jumpY=0; s.jumpV=0; s.jumping=false; }
+  }else{ s.jumpY=0; }
+
+  for(const poop of s.poops){
+    if(!poop.triggered && s.hunterProgress>=poop.progress){
+      poop.triggered=true;
+      s.hunterSlowUntil=now+2200;
+      sfx("slip");
+      break;
     }
-  }else{
-    s.jumpY=0;
   }
 
-  if(
-    s.poopProgress!==null &&
-    !s.poopTriggered &&
-    s.hunterProgress>=s.poopProgress
-  ){
-    s.poopTriggered=true;
-    s.hunterSlowUntil=now+2200;
-    showMessage("💩 Prof. Dr. Tyrannus Greif rutscht aus!",1200);
+  // Gegenstände einsammeln
+  const currentInfo=routeInfo(s.progress);
+  for(const p of pickups){
+    if(p.gameLevel!==s.gameLevel) continue;
+    if(s.collectedPickupIds.has(p.id)) continue;
+    if(p.l!==currentInfo.level) continue;
+
+    const pickupProgress=p.l*RUN+p.p;
+    if(Math.abs(s.progress-pickupProgress)<=20){
+      s.collectedPickupIds.add(p.id);
+
+      if(p.type==="shield"){
+        s.shieldUsed=false; // Schild verfügbar machen (maximal 1 gleichzeitig)
+        sfx("shield");
+        showMessage("🛡️ Schild gefunden!",950);
+      }else if(p.type==="berry"){
+        s.berryUsed=false; // Beere verfügbar machen (maximal 1 gleichzeitig)
+        sfx("berry");
+        showMessage("🍓 Beere gefunden!",950);
+      }
+
+      refreshItems();
+    }
   }
 
   if(now>s.invuln){
     const info=routeInfo(s.progress);
-
-    for(const o of obstacles){
+    for(const o of currentObstacles()){
       if(o.l!==info.level) continue;
-
       const obsStart=o.l*RUN+o.p;
       const obsEnd=obsStart+o.w;
       const bodyLeft=s.progress-16;
       const bodyRight=s.progress+16;
       const horizontal=bodyRight>obsStart && bodyLeft<obsEnd;
-
       if(!horizontal) continue;
 
       let collision=false;
-
       if(o.type==="ground"){
         const dinoBottom=s.jumpY+18;
         const obstacleTop=-o.h;
@@ -380,32 +743,31 @@ function update(dt,now){
 
       if(collision){
         s.invuln=now+650;
-
+        s.ouchUntil=now+900;
         if(now<s.shieldUntil){
-          showMessage("🛡️ Geblockt!",750);
+          sfx("block");
         }else{
+          sfx("hit");
           s.slowUntil=now+(boosted ? 1450 : 1200);
-          s.progress-=boosted ? 12 : 9;
-          showMessage(o.type==="low" ? "💥 Zu spät geduckt!" : "💥 Getroffen!",800);
+          s.progress=Math.max(s.playerLevel*RUN + (s.playerLevel===0 ? 0 : 0.001), s.progress-(boosted ? 12 : 9));
         }
         break;
       }
     }
   }
 
-  if(s.hunterProgress>=s.progress-28){
+  if(s.hunterProgress>=s.progress-28 && !s.lost){
     s.lost=true;
-  }
-
-  if(s.progress>=TOTAL){
-    s.progress=TOTAL;
-    s.won=true;
+    sfx("fail");
   }
 }
 
 function drawBackground(){
-  if(backgroundImage.complete && backgroundImage.naturalWidth>0){
-    ctx.drawImage(backgroundImage,0,0,W,H);
+  const idx=Math.max(0,Math.min(2,(s?.gameLevel || 1)-1));
+  const img=backgroundImages[idx];
+
+  if(img.complete && img.naturalWidth>0){
+    ctx.drawImage(img,0,0,W,H);
   }else{
     ctx.fillStyle="#173023";
     ctx.fillRect(0,0,W,H);
@@ -419,9 +781,15 @@ function obstacleXY(o){
   return {x,y};
 }
 
+function pickupXY(p){
+  const dir=p.l===1?-1:1;
+  const x=dir===1 ? LEFT+p.p : RIGHT-p.p;
+  const y=platformY[p.l];
+  return {x,y};
+}
+
 function drawImageFlipped(img,x,y,w,h,flipX=false){
   if(!img.complete || !img.naturalWidth) return false;
-
   ctx.save();
   if(flipX){
     ctx.translate(x+w,y);
@@ -434,26 +802,47 @@ function drawImageFlipped(img,x,y,w,h,flipX=false){
   return true;
 }
 
+function getSheetFrameRect(img,frameCount=4,frameIndex=0){
+  if(!img.complete || !img.naturalWidth) return null;
+  const fw=Math.round(img.naturalWidth/frameCount);
+  const fh=img.naturalHeight;
+  const idx=((frameIndex%frameCount)+frameCount)%frameCount;
+  return {sx:idx*fw, sy:0, sw:fw, sh:fh};
+}
+
+function drawAnimatedSprite(img,x,y,w,h,frameIndex,flipX=false){
+  const rect=getSheetFrameRect(img,4,frameIndex);
+  if(!rect) return false;
+  ctx.save();
+  if(flipX){
+    ctx.translate(x+w,y);
+    ctx.scale(-1,1);
+    ctx.drawImage(img,rect.sx,rect.sy,rect.sw,rect.sh,0,0,w,h);
+  }else{
+    ctx.drawImage(img,rect.sx,rect.sy,rect.sw,rect.sh,x,y,w,h);
+  }
+  ctx.restore();
+  return true;
+}
+
 function drawObstacle(o){
   const {x,y}=obstacleXY(o);
+  const idx=Math.max(0,Math.min(2,(s?.gameLevel || 1)-1));
+  const spriteJump=spriteJumpImages[idx];
+  const spriteDuck=spriteDuckImages[idx];
 
   if(o.type==="ground"){
-    // Die Grafik darf optisch größer sein als die eigentliche Kollisionsbox.
-    const sw=58;
-    const sh=55;
+    const sw=58, sh=55;
     const sx=x + o.w/2 - sw/2;
-    const sy=y-sh+4;
-
+    const sy=y-sh+14 + getVisualYOffset(o.l);
     if(!drawImageFlipped(spriteJump,sx,sy,sw,sh,false)){
       ctx.fillStyle="#704524";
       ctx.fillRect(x,y-o.h,o.w,o.h);
     }
   }else{
-    const sw=Math.max(82,o.w+28);
-    const sh=44;
+    const sw=Math.max(82,o.w+28), sh=44;
     const sx=x + o.w/2 - sw/2;
-    const sy=y-66;
-
+    const sy=y-66 + getVisualYOffset(o.l);
     if(!drawImageFlipped(spriteDuck,sx,sy,sw,sh,false)){
       ctx.fillStyle="#5f3c24";
       ctx.fillRect(x,y-53,o.w,12);
@@ -462,100 +851,136 @@ function drawObstacle(o){
 }
 
 function drawPoop(){
-  if(s.poopProgress===null || s.poopTriggered) return;
-  const info=routeInfo(s.poopProgress);
-  ctx.save();
-  ctx.translate(info.x,info.y-8);
-  ctx.font="26px system-ui";
-  ctx.textAlign="center";
-  ctx.fillText("💩",0,0);
-  ctx.restore();
+  for(const poop of s.poops){
+    if(poop.triggered) continue;
+
+    const info=routeInfo(poop.progress);
+    ctx.save();
+    ctx.translate(info.x,info.y-8 + getVisualYOffset(info.level));
+    ctx.font="26px system-ui";
+    ctx.textAlign="center";
+    ctx.fillText("💩",0,0);
+    ctx.restore();
+  }
+}
+
+function drawPickups(){
+  for(const p of pickups){
+    if(p.gameLevel!==s.gameLevel) continue;
+    if(s.collectedPickupIds.has(p.id)) continue;
+
+    const {x,y}=pickupXY(p);
+    const emoji=p.type==="shield" ? "🛡️" : "🍓";
+    ctx.save();
+    ctx.textAlign="center";
+    ctx.font=p.type==="shield" ? "26px system-ui" : "24px system-ui";
+    ctx.fillStyle="rgba(0,0,0,.35)";
+    ctx.fillText(emoji,x+1,y-26 + getVisualYOffset(p.l) + 1);
+    ctx.fillStyle="#fff";
+    ctx.fillText(emoji,x,y-27 + getVisualYOffset(p.l));
+    ctx.restore();
+  }
+}
+
+function getSpinoFrame(now){
+  const moving = (keys.has("a")||keys.has("A")||keys.has("d")||keys.has("D")||keys.has("ArrowLeft")||keys.has("ArrowRight")) && !s.paused && s.started && !s.won && !s.lost;
+
+  if(s.jumping) return s.spinoHeldFrame || 0;
+  if(!moving){
+    s.spinoHeldFrame=0;
+    return 0;
+  }
+
+  const frame=Math.floor(now/120)%4;
+  s.spinoHeldFrame=frame;
+  return frame;
+}
+
+function getGreifFrame(now){
+  const moving = s.started && !s.paused && !s.won && !s.lost && !s.hunterFrozen && s.hunterProgress>=0;
+  if(!moving) return 0;
+  return Math.floor(now/110)%4;
 }
 
 function drawSpino(){
   const info=routeInfo(s.progress);
   const now=performance.now();
-
-  const baseW=80;
-  const baseH=80;
+  const baseW=86;
+  const baseH=86;
   const duckScale=.66;
-
   const drawH=s.ducking ? baseH*duckScale : baseH;
   const x=info.x-baseW/2;
-  const y=info.y-drawH+s.jumpY+7;
+  const y=info.y-drawH+s.jumpY+12 + getVisualYOffset(info.level);
 
   ctx.save();
+  if(now<s.shieldUntil && Math.floor(now/120)%2===0) ctx.globalAlpha=.4;
 
-  if(now<s.shieldUntil && Math.floor(now/120)%2===0){
-    ctx.globalAlpha=.4;
+  const frame=getSpinoFrame(now);
+  let drawn=false;
+  if(spriteSpinoAnimated.complete && spriteSpinoAnimated.naturalWidth){
+    drawn=drawAnimatedSprite(spriteSpinoAnimated,x,y,baseW,drawH,frame,s.facing<0);
   }
-
-  if(info.dir<0){
-    ctx.translate(x+baseW,y);
-    ctx.scale(-1,1);
-    if(spriteSpino.complete && spriteSpino.naturalWidth){
-      ctx.drawImage(spriteSpino,0,0,baseW,drawH);
-    }
-  }else{
-    if(spriteSpino.complete && spriteSpino.naturalWidth){
-      ctx.drawImage(spriteSpino,x,y,baseW,drawH);
-    }
+  if(!drawn && spriteSpinoStatic.complete && spriteSpinoStatic.naturalWidth){
+    drawImageFlipped(spriteSpinoStatic,x,y,baseW,drawH,s.facing<0);
   }
-
   ctx.globalAlpha=1;
   ctx.restore();
 
-  // Schild bleibt als Spieleffekt erhalten.
   if(now<s.shieldUntil){
-    ctx.strokeStyle="rgba(220,250,255,.95)";
-    ctx.lineWidth=3;
-    ctx.beginPath();
-    ctx.arc(info.x,info.y-32+s.jumpY,s.ducking?29:39,0,Math.PI*2);
-    ctx.stroke();
+    ctx.save();
+    ctx.font="28px system-ui";
+    ctx.textAlign="center";
+    ctx.fillText("🛡️",info.x,info.y-72+s.jumpY+getVisualYOffset(info.level));
+    ctx.restore();
   }
 
-  // Boost-Linien.
   if(now<s.boostUntil){
+    const facing=s.facing || 1;
+    const boostX=facing===1 ? info.x-44 : info.x+44;
     ctx.save();
-    ctx.strokeStyle="rgba(255,255,255,.85)";
-    ctx.lineWidth=3;
-    const behind=info.dir===1 ? info.x-50 : info.x+50;
-    for(let i=0;i<3;i++){
-      ctx.beginPath();
-      ctx.moveTo(behind-info.dir*i*8,info.y-45+i*9+s.jumpY);
-      ctx.lineTo(behind-info.dir*22-info.dir*i*8,info.y-45+i*9+s.jumpY);
-      ctx.stroke();
-    }
+    ctx.font="26px system-ui";
+    ctx.textAlign="center";
+    ctx.fillText("💨",boostX,info.y-14+s.jumpY+getVisualYOffset(info.level));
+    ctx.restore();
+  }
+
+  if(now<s.ouchUntil){
+    ctx.save();
+    ctx.font="22px system-ui";
+    ctx.textAlign="center";
+    ctx.fillText("💫",info.x,info.y-69+s.jumpY+getVisualYOffset(info.level));
     ctx.restore();
   }
 }
 
 function drawHunter(){
   if(s.hunterProgress<0) return;
-
   const info=routeInfo(s.hunterProgress);
-
-  const w=78;
-  const h=78;
+  const w=84, h=84;
   const x=info.x-w/2;
-  const y=info.y-h+8;
+  const y=info.y-h+8 + getVisualYOffset(info.level);
 
-  drawImageFlipped(spriteGreif,x,y,w,h,info.dir<0);
+  const frame=getGreifFrame(performance.now());
+  let drawn=false;
+  if(spriteGreifAnimated.complete && spriteGreifAnimated.naturalWidth){
+    drawn=drawAnimatedSprite(spriteGreifAnimated,x,y,w,h,frame,info.dir<0);
+  }
+  if(!drawn){
+    drawImageFlipped(spriteGreifStatic,x,y,w,h,info.dir<0);
+  }
 
   if(performance.now()<s.hunterSlowUntil){
     ctx.font="20px system-ui";
     ctx.textAlign="center";
-    ctx.fillText("💫",info.x+20,info.y-h+8);
+    ctx.fillText("💫",info.x+20,info.y-h+8+getVisualYOffset(info.level));
     ctx.textAlign="left";
   }
 }
 
 function drawMessage(){
-  if(performance.now()>=s.messageUntil || s.won || s.lost || s.paused) return;
-
+  if(performance.now()>=s.messageUntil || s.won || s.lost || s.paused || s.transitioning) return;
   ctx.fillStyle="rgba(0,0,0,.62)";
   ctx.fillRect(W/2-205,35,410,36);
-
   ctx.fillStyle="#ffe59a";
   ctx.font="bold 16px system-ui";
   ctx.textAlign="center";
@@ -565,57 +990,83 @@ function drawMessage(){
 
 function drawStartScreen(){
   if(s.started) return;
-
-  ctx.fillStyle="rgba(0,0,0,.55)";
-  ctx.fillRect(0,0,W,H);
-
+  if(startScreenImage.complete && startScreenImage.naturalWidth>0){
+    ctx.drawImage(startScreenImage,0,0,W,H);
+  }else{
+    ctx.fillStyle="rgba(0,0,0,.55)";
+    ctx.fillRect(0,0,W,H);
+  }
+  ctx.fillStyle="rgba(0,0,0,.58)";
+  ctx.fillRect(W/2-190,H-94,380,52);
   ctx.textAlign="center";
-  ctx.fillStyle="#fff";
-  ctx.font="bold 34px system-ui";
-  ctx.fillText("🦖 Spionosaurus – Flucht vor",W/2,225);
-  ctx.fillText("Prof. Dr. Tyrannus Greif",W/2,267);
-
-  ctx.font="22px system-ui";
+  ctx.font="bold 24px system-ui";
   ctx.fillStyle="#f3d35c";
-  ctx.fillText("Leertaste zum Start",W/2,315);
-
+  ctx.fillText("Leertaste zum Start",W/2,H-60);
   ctx.textAlign="left";
+}
+
+function drawLevelTransition(){
+  if(!s.transitioning) return;
+
+  const elapsed=performance.now()-s.transitionStart;
+  const half=s.transitionDuration/2;
+
+  let alpha;
+  if(elapsed<=half){
+    alpha=Math.min(1,elapsed/half);
+  }else{
+    alpha=Math.max(0,1-(elapsed-half)/half);
+  }
+
+  ctx.save();
+  ctx.fillStyle=`rgba(0,0,0,${alpha})`;
+  ctx.fillRect(0,0,W,H);
+  ctx.restore();
 }
 
 function drawPauseScreen(){
   if(!s.paused) return;
-
   ctx.fillStyle="rgba(0,0,0,.58)";
   ctx.fillRect(0,0,W,H);
-
   ctx.textAlign="center";
   ctx.fillStyle="#fff";
   ctx.font="bold 46px system-ui";
   ctx.fillText("PAUSE",W/2,275);
-
   ctx.font="18px system-ui";
   ctx.fillStyle="#f3d35c";
   ctx.fillText("P zum Fortsetzen",W/2,315);
   ctx.textAlign="left";
 }
 
+function drawImageCover(img){
+  const scale=Math.max(W/img.naturalWidth,H/img.naturalHeight);
+  const dw=img.naturalWidth*scale;
+  const dh=img.naturalHeight*scale;
+  const dx=(W-dw)/2;
+  const dy=(H-dh)/2;
+  ctx.drawImage(img,dx,dy,dw,dh);
+}
+
 function drawEndScreen(){
   if(!s.won && !s.lost) return;
+  const endImg=s.won?winScreenImage:failScreenImage;
+  if(endImg.complete && endImg.naturalWidth>0){ drawImageCover(endImg); }
+  else { ctx.fillStyle="#000"; ctx.fillRect(0,0,W,H); }
 
-  ctx.fillStyle="rgba(0,0,0,.72)";
+  ctx.fillStyle="rgba(0,0,0,.28)";
   ctx.fillRect(0,0,W,H);
+  ctx.fillStyle="rgba(0,0,0,.58)";
+  ctx.fillRect(W/2-330,220,660,s.won?175:150);
 
   ctx.textAlign="center";
   ctx.fillStyle="#fff";
   ctx.font="bold 42px system-ui";
-  ctx.fillText(s.won?"MISSION ERFÜLLT!":"ERWISCHT!",W/2,270);
+  ctx.fillText(s.won?"* * * JAAA, JUHUUUU * * *":"ERWISCHT!",W/2,270);
 
   ctx.font="22px system-ui";
   ctx.fillStyle=s.won?"#f3d35c":"#ffaaaa";
   ctx.fillText(
-    s.won
-      ? "Spionosaurus hat die Höhle erreicht."
-      : "Prof. Dr. Tyrannus Greif hat Spionosaurus eingeholt.",
+    s.won ? "Spionosaurus hat seine Höhle erreicht." : "Prof. Dr. Tyrannus Greif hat Spionosaurus eingeholt.",
     W/2,315
   );
 
@@ -624,27 +1075,41 @@ function drawEndScreen(){
     ctx.fillText("TEST-INFORMATION: SCHATTEN 23",W/2,365);
   }
 
-  ctx.font="16px system-ui";
-  ctx.fillStyle="#ddd";
-  ctx.fillText("Leertaste für einen neuen Versuch",W/2,405);
-
+  if(s.lost){
+    ctx.font="16px system-ui";
+    ctx.fillStyle="#ddd";
+    ctx.fillText("Leertaste für einen neuen Versuch",W/2,355);
+  }
   ctx.textAlign="left";
+}
+
+function drawAssetErrors(){
+  if(assetErrors.length===0) return;
+  ctx.save();
+  ctx.fillStyle="rgba(120,0,0,.82)";
+  ctx.fillRect(14,H-58,520,42);
+  ctx.fillStyle="#fff";
+  ctx.font="bold 13px system-ui";
+  ctx.fillText("TEST: Bilddatei nicht geladen: "+assetErrors.join(", "),24,H-33);
+  ctx.restore();
 }
 
 function draw(){
   drawBackground();
-  obstacles.forEach(drawObstacle);
+  currentObstacles().forEach(drawObstacle);
   drawPoop();
+  drawPickups();
   drawHunter();
   drawSpino();
   drawMessage();
   drawStartScreen();
+  drawLevelTransition();
   drawPauseScreen();
   drawEndScreen();
+  drawAssetErrors();
 }
 
 let last=performance.now();
-
 function loop(now){
   const dt=Math.min(.05,(now-last)/1000);
   last=now;
