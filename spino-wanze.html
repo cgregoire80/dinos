@@ -1,0 +1,2185 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spionosaurus – Spionos Wanze bei Prof. Dr. Greif</title>
+<style>
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    min-height:100vh;
+    display:grid;
+    place-items:center;
+    background:#08120d;
+    color:#eef7f0;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  }
+  .wrap{
+    width:min(96vw,980px);
+    padding:18px;
+    border:1px solid #315c45;
+    border-radius:18px;
+    background:#0d1d14;
+  }
+  h1{
+    margin:0;
+    font-size:clamp(24px,3.35vw,36px);
+    line-height:1;
+    text-align:center;
+    white-space:nowrap;
+    min-height:54px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    align-self:center;
+  }
+  .title-line{
+    display:grid;
+    grid-template-columns:54px minmax(0,1fr) 54px;
+    align-items:center;
+    gap:10px;
+    margin:0 0 18px;
+    width:100%;
+  }
+  .title-head{
+    width:54px;
+    height:54px;
+    object-fit:contain;
+    display:block;
+    position:relative;
+    top:-5px;
+  }
+  .spino-head{justify-self:start}
+  .greif-head{justify-self:end}
+  .bar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    flex-wrap:wrap;
+    margin-bottom:10px;
+  }
+  .items{display:flex;gap:8px;flex-wrap:wrap}
+  .item{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    padding:6px 10px;
+    border:1px solid #476b59;
+    border-radius:9px;
+    background:#14291e;
+    font-size:14px;
+    font-weight:800;
+  }
+  .item.done{border-color:#6f9b72;background:#173622}
+  .item .state{font-size:12px;opacity:.72}
+  @keyframes alarmFlash{
+    0%,100%{background:#14291e;border-color:#476b59;box-shadow:none}
+    50%{background:#7b1119;border-color:#ff4d5d;box-shadow:0 0 18px rgba(255,77,93,.95);color:#fff}
+  }
+  .item.alarm-flash{animation:alarmFlash .36s ease-in-out 3}
+  button{
+    border:0;
+    border-radius:10px;
+    padding:8px 13px;
+    font-weight:800;
+    background:#f3d35c;
+    cursor:pointer;
+  }
+  canvas{
+    display:block;
+    width:100%;
+    height:auto;
+    border:2px solid #315c45;
+    border-radius:12px;
+    background:#09141a;
+  }
+  .controls{
+    margin-top:12px;
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:10px 30px;
+    opacity:.84;
+    font-size:14px;
+    line-height:1.5;
+  }
+  .control-block{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+  kbd{
+    background:#1b3428;
+    border:1px solid #476b59;
+    border-radius:5px;
+    padding:1px 7px;
+    margin-right:2px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="title-line">
+    <img class="title-head spino-head" src="spino-wanze-assets/spino_head.webp" alt="">
+    <h1>Spionosaurus – Spionos Wanze bei Prof. Dr. Greif</h1>
+    <img class="title-head greif-head" src="spino-wanze-assets/greif_head.webp" alt="">
+  </div>
+
+  <div class="bar">
+    <div class="items">
+      <span class="item" id="alarmItem">🚨 ALARM <span class="state">0/9</span></span>
+    </div>
+    <button id="restart">Neu starten</button>
+  </div>
+
+  <canvas id="game" width="920" height="620"></canvas>
+
+  <div class="controls">
+    <span class="control-block"><kbd>Leertaste</kbd><span>starten</span></span>
+    <span class="control-block"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>/</span><kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd><span>Wanze bewegen</span></span>
+    <span class="control-block"><kbd>Esc</kbd><span>Rätsel verlassen</span></span>
+    <span class="control-block"><kbd>P</kbd><span>Pause</span></span>
+    <span class="control-block"><kbd>M</kbd><span>Sound an/aus</span></span>
+  </div>
+</div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+ctx.imageSmoothingEnabled=true;
+
+const restartBtn=document.getElementById("restart");
+const alarmItem=document.getElementById("alarmItem");
+
+const startScreenImage=new Image();
+startScreenImage.src="spino-wanze-assets/spino_start_screen.png";
+
+const bugTopDownImage=new Image();
+bugTopDownImage.src="spino-wanze-assets/sprite_wanze_topdown.png";
+
+const bugMonitorImage=new Image();
+bugMonitorImage.src="spino-wanze-assets/sprite_wanze.png";
+
+const W=canvas.width,H=canvas.height;
+const COLS=29, ROWS=17, CELL=30;
+const OX=Math.round((W-COLS*CELL)/2);
+const OY=55;
+const ROUTING_ROUND_MS=30000;
+const ROUTING_ROUND_SECONDS=30;
+const POWER_ROUND_SECONDS=[30,25,20];
+function powerRoundSeconds(round){return POWER_ROUND_SECONDS[round]??20}
+function powerRoundMs(round){return powerRoundSeconds(round)*1000}
+const POWER_FALL_SPEED=[102.4,115.2,128]; // Runde 1: -20 %, Runde 2: -10 %, Runde 3: Basisgeschwindigkeit
+function powerFallSpeed(round){return POWER_FALL_SPEED[round]??128}
+
+// --- Sound ---------------------------------------------------------------
+let audioCtx=null;
+let soundMuted=false;
+const SFX_VOLUME_MULTIPLIER=1.4;
+function ensureAudio(){
+  if(soundMuted) return null;
+  const AC=window.AudioContext||window.webkitAudioContext;
+  if(!AC) return null;
+  if(!audioCtx) audioCtx=new AC();
+  if(audioCtx.state==="suspended") audioCtx.resume();
+  return audioCtx;
+}
+function tone(freq,duration=.10,type="sine",volume=.04,delay=0){
+  const ac=ensureAudio(); if(!ac) return;
+  const start=ac.currentTime+delay;
+  const osc=ac.createOscillator();
+  const gain=ac.createGain();
+  osc.type=type; osc.frequency.setValueAtTime(freq,start);
+  gain.gain.setValueAtTime(.0001,start);
+  gain.gain.exponentialRampToValueAtTime(Math.max(.0002,volume*SFX_VOLUME_MULTIPLIER),start+.012);
+  gain.gain.exponentialRampToValueAtTime(.0001,start+duration);
+  osc.connect(gain); gain.connect(ac.destination);
+  osc.start(start); osc.stop(start+duration+.03);
+}
+function sfx(name){
+  if(soundMuted) return;
+  if(name==="start"){tone(280,.07,"triangle",.03);tone(420,.08,"triangle",.035,.07);tone(620,.12,"triangle",.04,.14)}
+  else if(name==="step"){tone(180,.025,"square",.012)}
+  else if(name==="terminal"){tone(520,.06,"triangle",.03);tone(760,.10,"sine",.035,.06)}
+  else if(name==="turn"){tone(340,.045,"square",.02)}
+  else if(name==="ok"){tone(440,.07,"triangle",.035);tone(660,.08,"triangle",.04,.07);tone(880,.13,"triangle",.04,.14)}
+  else if(name==="bad"){tone(190,.10,"square",.04);tone(125,.14,"sawtooth",.035,.06)}
+  else if(name==="scan"){tone(980,.06,"square",.025);tone(760,.08,"square",.025,.05)}
+  else if(name==="miniwin"){tone(523,.07,"triangle",.03);tone(659,.08,"triangle",.035,.08);tone(784,.10,"triangle",.04,.16)}
+  else if(name==="win"){tone(392,.10,"triangle",.035);tone(523,.10,"triangle",.04,.10);tone(659,.12,"triangle",.04,.20);tone(784,.20,"triangle",.045,.31)}
+}
+function sequenceTone(v){
+  const freqs=[392,523,659,784];
+  const types=["sine","triangle","square","sine"];
+  tone(freqs[v]||440,.12,types[v]||"sine",.035);
+}
+
+// --- deterministic maze --------------------------------------------------
+function rngFactory(seed){
+  let x=seed>>>0;
+  return ()=>{x=(1664525*x+1013904223)>>>0;return x/4294967296};
+}
+const rng=rngFactory(23081976);
+function makeMaze(){
+  const g=Array.from({length:ROWS},()=>Array(COLS).fill(1));
+  const dirs=[[2,0],[-2,0],[0,2],[0,-2]];
+  const stack=[[1,1]]; g[1][1]=0;
+  while(stack.length){
+    const [x,y]=stack[stack.length-1];
+    const choices=[];
+    for(const [dx,dy] of dirs){
+      const nx=x+dx,ny=y+dy;
+      if(nx>0&&ny>0&&nx<COLS-1&&ny<ROWS-1&&g[ny][nx]===1) choices.push([dx,dy]);
+    }
+    if(!choices.length){stack.pop();continue}
+    const [dx,dy]=choices[Math.floor(rng()*choices.length)];
+    g[y+dy/2][x+dx/2]=0; g[y+dy][x+dx]=0;
+    stack.push([x+dx,y+dy]);
+  }
+  // A few extra links make the digital system less like a perfect maze.
+  for(let y=2;y<ROWS-2;y++) for(let x=2;x<COLS-2;x++){
+    if(g[y][x]===1 && rng()<.045){
+      const horiz=g[y][x-1]===0&&g[y][x+1]===0;
+      const vert=g[y-1][x]===0&&g[y+1][x]===0;
+      if(horiz||vert) g[y][x]=0;
+    }
+  }
+  return g;
+}
+const maze=makeMaze();
+const start={x:1,y:1};
+function neighbors(p){
+  return [[1,0],[-1,0],[0,1],[0,-1]].map(([dx,dy])=>({x:p.x+dx,y:p.y+dy}))
+    .filter(q=>q.x>=0&&q.y>=0&&q.x<COLS&&q.y<ROWS&&maze[q.y][q.x]===0);
+}
+function bfs(from){
+  const key=p=>p.x+","+p.y;
+  const dist=new Map([[key(from),0]]); const q=[from];
+  for(let i=0;i<q.length;i++){
+    const p=q[i],d=dist.get(key(p));
+    for(const n of neighbors(p)) if(!dist.has(key(n))){dist.set(key(n),d+1);q.push(n)}
+  }
+  return {dist,list:q};
+}
+const reach=bfs(start);
+const deadEnds=reach.list.filter(p=>!(p.x===start.x&&p.y===start.y)&&neighbors(p).length===1)
+  .sort((a,b)=>reach.dist.get(b.x+","+b.y)-reach.dist.get(a.x+","+a.y));
+function chooseSpread(){
+  const chosen=[];
+  for(const p of deadEnds){
+    if(chosen.every(c=>Math.abs(c.x-p.x)+Math.abs(c.y-p.y)>8)) chosen.push(p);
+    if(chosen.length===4) break;
+  }
+  while(chosen.length<4) chosen.push(deadEnds[chosen.length]);
+  return chosen;
+}
+const spots=chooseSpread();
+const terminals=[
+  {id:"archiv",label:"ARCHIV",icon:"📁",pos:spots[0],color:"#6cc9ff",solved:false},
+  {id:"cam",label:"ÜBERWACHUNG",icon:"📹",pos:spots[1],color:"#d68cff",solved:false},
+  {id:"lab",label:"FORSCHUNG",icon:"🔬",pos:spots[2],color:"#7be58e",solved:false}
+];
+const exitPos=spots[3];
+
+function pickScannerCells(){
+  const excluded=[start,exitPos,...terminals.map(t=>t.pos)];
+  const cand=reach.list.filter(p=>{
+    const d=reach.dist.get(p.x+","+p.y);
+    return d>8 && neighbors(p).length===2 && excluded.every(e=>Math.abs(e.x-p.x)+Math.abs(e.y-p.y)>4);
+  });
+  const result=[];
+  for(let i=0;i<cand.length;i+=Math.max(1,Math.floor(cand.length/9))){
+    const p=cand[i];
+    if(result.every(r=>Math.abs(r.x-p.x)+Math.abs(r.y-p.y)>5)) result.push(p);
+    if(result.length===5) break;
+  }
+  return result.map((p,i)=>({...p,phase:i*.61}));
+}
+const scanners=pickScannerCells();
+function scannerActive(sc,now){return ((now/1000+sc.phase)%3.2)<1.45}
+
+
+// --- sichere Felder & digitales Virus -----------------------------------
+function posKey(p){return p.x+","+p.y}
+function pickSafeCells(){
+  const excluded=[exitPos,...terminals.map(t=>t.pos),...scanners];
+  const candidates=reach.list
+    .filter(p=>reach.dist.get(posKey(p))>5)
+    .filter(p=>neighbors(p).length>=2)
+    .filter(p=>excluded.every(e=>Math.abs(e.x-p.x)+Math.abs(e.y-p.y)>3));
+  const chosen=[{...start}];
+  for(const p of candidates){
+    if(chosen.every(c=>Math.abs(c.x-p.x)+Math.abs(c.y-p.y)>7)) chosen.push({...p});
+    if(chosen.length===5) break;
+  }
+  return chosen;
+}
+const safeCells=pickSafeCells();
+function isSafeCell(x,y){return safeCells.some(p=>p.x===x&&p.y===y)}
+
+function pickVirusStart(){
+  const forbidden=[start,exitPos,...terminals.map(t=>t.pos),...safeCells];
+  const candidates=reach.list
+    .filter(p=>!forbidden.some(e=>e.x===p.x&&e.y===p.y))
+    .sort((a,b)=>reach.dist.get(posKey(b))-reach.dist.get(posKey(a)));
+  return candidates[0] ? {...candidates[0]} : {x:COLS-2,y:ROWS-2};
+}
+const virusStart=pickVirusStart();
+
+function virusNeighbors(p){
+  return [[1,0],[-1,0],[0,1],[0,-1]]
+    .map(([dx,dy])=>({x:p.x+dx,y:p.y+dy}))
+    .filter(q=>q.x>=0&&q.y>=0&&q.x<COLS&&q.y<ROWS&&maze[q.y][q.x]===0&&!isSafeCell(q.x,q.y));
+}
+function virusNextStep(from,target){
+  const goals=[];
+  if(isSafeCell(target.x,target.y)){
+    for(const n of neighbors(target)) if(!isSafeCell(n.x,n.y)) goals.push(n);
+  }else goals.push(target);
+  if(!goals.length) return null;
+  const goalKeys=new Set(goals.map(posKey));
+  const startKey=posKey(from);
+  const q=[from], seen=new Set([startKey]), parent=new Map();
+  let found=null;
+  for(let i=0;i<q.length;i++){
+    const p=q[i];
+    if(goalKeys.has(posKey(p))){found=p;break}
+    for(const n of virusNeighbors(p)){
+      const k=posKey(n);
+      if(seen.has(k)) continue;
+      seen.add(k); parent.set(k,p); q.push(n);
+    }
+  }
+  if(!found) return null;
+  let cur=found, prev=parent.get(posKey(cur));
+  while(prev && posKey(prev)!==startKey){cur=prev;prev=parent.get(posKey(cur))}
+  return posKey(cur)===startKey ? null : cur;
+}
+function handleVirusHit(now){
+  increaseAlarm();
+  sfx("bad");
+  if(s.alarms>=9){s.lost=true;return}
+  const dir=s.player.dir||"up";
+  s.player={...s.safeCheckpoint,dir};
+  s.virus={...virusStart};
+  s.virusNextMove=now+900;
+  showMessage(`Viruskontakt! Alarm ${s.alarms}/9 – zurück zum letzten sicheren Feld.`,2400);
+}
+function updateVirus(now){
+  if(!s.started||s.won||s.lost||s.paused||s.puzzle)return;
+  if(now<s.virusNextMove)return;
+  s.virusNextMove=now+520;
+  const next=virusNextStep(s.virus,s.player);
+  if(next) s.virus={...next};
+  if(s.virus.x===s.player.x&&s.virus.y===s.player.y&&!isSafeCell(s.player.x,s.player.y)) handleVirusHit(now);
+}
+
+let s;
+function reset(autoStart=false){
+  terminals.forEach(t=>t.solved=false);
+  s={
+    started:autoStart, won:false,lost:false,paused:false,pauseStarted:0,
+    player:{...start,dir:"up"}, checkpoint:{...start}, safeCheckpoint:{...start}, alarms:0,
+    virus:{...virusStart}, virusNextMove:performance.now()+1200,
+    message:autoStart?"Auf der Mauer, auf der Lauer … los geht's kleine 🪲 Wanze":"",
+    messageUntil:autoStart?performance.now()+4400:0,
+    messageTop:autoStart,
+    puzzle:null,
+    freezeScanners:false
+  };
+  updateHud();
+  if(autoStart) sfx("start");
+}
+function updateHud(){
+  alarmItem.querySelector(".state").textContent=s?`${s.alarms}/9`:"0/9";
+  alarmItem.classList.toggle("done",s&&s.alarms===0);
+}
+function triggerAlarmFlash(){
+  alarmItem.classList.remove("alarm-flash");
+  void alarmItem.offsetWidth;
+  alarmItem.classList.add("alarm-flash");
+}
+function increaseAlarm(){
+  s.alarms++;
+  updateHud();
+  triggerAlarmFlash();
+  return s.alarms;
+}
+function showMessage(text,ms=1800,top=false){s.message=text;s.messageUntil=performance.now()+ms;s.messageTop=top}
+function allSolved(){return terminals.every(t=>t.solved)}
+function terminalAt(x,y){return terminals.find(t=>t.pos.x===x&&t.pos.y===y)}
+function scannerAt(x,y){return scanners.find(sc=>sc.x===x&&sc.y===y)}
+
+function tryMove(dx,dy){
+  if(!s.started||s.won||s.lost||s.puzzle||s.paused) return;
+  if(dx<0) s.player.dir="left";
+  else if(dx>0) s.player.dir="right";
+  else if(dy<0) s.player.dir="up";
+  else if(dy>0) s.player.dir="down";
+  const nx=s.player.x+dx,ny=s.player.y+dy;
+  if(nx<0||ny<0||nx>=COLS||ny>=ROWS||maze[ny][nx]===1){sfx("bad");return}
+  s.player={x:nx,y:ny,dir:s.player.dir}; sfx("step");
+  const now=performance.now();
+
+  if(isSafeCell(nx,ny)) s.safeCheckpoint={x:nx,y:ny};
+
+  const sc=scannerAt(nx,ny);
+  if(sc && scannerActive(sc,now) && !s.freezeScanners){
+    increaseAlarm();
+    sfx("scan");
+    if(s.alarms>=9){s.lost=true;sfx("bad");return}
+    s.player={...s.checkpoint,dir:s.player.dir};
+    showMessage(`Sicherheitsscanner! Alarm ${s.alarms}/9 – zurück zum letzten Datenknoten.`,2600);
+    return;
+  }
+
+  if(s.virus.x===nx&&s.virus.y===ny&&!isSafeCell(nx,ny)){
+    handleVirusHit(now);
+    return;
+  }
+
+  const t=terminalAt(nx,ny);
+  if(t){
+    if(t.solved){showMessage(`${t.label}: Daten bereits gesichert.`);return}
+    openPuzzle(t);
+    return;
+  }
+  if(nx===exitPos.x&&ny===exitPos.y){
+    if(allSolved()){s.won=true;sfx("miniwin");setTimeout(()=>sfx("win"),140)}
+    else showMessage(`ÜBERTRAGUNG GESPERRT – noch ${terminals.filter(t=>!t.solved).length} Datenknoten offen.`,2200);
+  }
+}
+
+// --- Spiel 1: Archiv / Signalrouting ------------------------------------
+function setEq(a,b){
+  if(a.length!==b.length)return false;
+  const aa=a.slice().sort((x,y)=>x-y),bb=b.slice().sort((x,y)=>x-y);
+  return aa.every((v,i)=>v===bb[i]);
+}
+function dirBetween(a,b){
+  if(b.x===a.x&&b.y===a.y-1)return 0;
+  if(b.x===a.x+1&&b.y===a.y)return 1;
+  if(b.x===a.x&&b.y===a.y+1)return 2;
+  return 3;
+}
+function routingTargetFor(type,dirs){
+  for(let r=0;r<4;r++) if(setEq(connectors(type,r),dirs)) return r;
+  return 0;
+}
+function shuffleCopy(arr){
+  const a=arr.slice();
+  for(let i=a.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+  return a;
+}
+function randomHamiltonianPath(w,h){
+  const total=w*h;
+  const dirs=[[1,0],[-1,0],[0,1],[0,-1]];
+  const inBounds=(x,y)=>x>=0&&y>=0&&x<w&&y<h;
+
+  for(let attempt=0;attempt<120;attempt++){
+    const start={x:0,y:Math.floor(Math.random()*h)};
+    const visited=Array.from({length:h},()=>Array(w).fill(false));
+    const path=[start];
+    visited[start.y][start.x]=true;
+
+    function onwardDegree(x,y){
+      let n=0;
+      for(const [dx,dy] of dirs){
+        const nx=x+dx,ny=y+dy;
+        if(inBounds(nx,ny)&&!visited[ny][nx]) n++;
+      }
+      return n;
+    }
+    function dfs(x,y){
+      if(path.length===total) return x===w-1;
+      let opts=[];
+      for(const [dx,dy] of dirs){
+        const nx=x+dx,ny=y+dy;
+        if(inBounds(nx,ny)&&!visited[ny][nx]) opts.push({x:nx,y:ny});
+      }
+      opts=shuffleCopy(opts).sort((a,b)=>onwardDegree(a.x,a.y)-onwardDegree(b.x,b.y));
+      for(const n of opts){
+        visited[n.y][n.x]=true;path.push(n);
+        if(dfs(n.x,n.y)) return true;
+        path.pop();visited[n.y][n.x]=false;
+      }
+      return false;
+    }
+    if(dfs(start.x,start.y)) return path.map(q=>({...q}));
+  }
+
+  // Sichere Fallback-Variante: zufällig von oben oder unten geschlängelt.
+  const path=[];
+  const reverseRows=Math.random()<.5;
+  const ys=Array.from({length:h},(_,i)=>reverseRows?h-1-i:i);
+  ys.forEach((y,rowIndex)=>{
+    if(rowIndex%2===0) for(let x=0;x<w;x++) path.push({x,y});
+    else for(let x=w-1;x>=0;x--) path.push({x,y});
+  });
+  return path;
+}
+function moduleCycle(type){
+  if(type==="corner"||type==="t"||type==="portal") return 4;
+  if(type==="straight"||type==="switch"||type==="blocker") return 2;
+  return 1; // cross
+}
+function canonicalRotation(type,rot){
+  if(type==="straight") return ((rot%2)+2)%2;
+  return ((rot%4)+4)%4;
+}
+function extraDirectionForT(pathDirs){
+  const missing=[0,1,2,3].filter(d=>!pathDirs.includes(d));
+  return missing[Math.floor(Math.random()*missing.length)];
+}
+function makeRoutingBoardAttempt(round){
+  const configs=[
+    {w:4,h:4,coupleCount:2,special:{t:1,cross:1,switch:1,blocker:1,portal:0}},
+    {w:5,h:4,coupleCount:2,special:{t:2,cross:1,switch:2,blocker:1,portal:1}},
+    {w:6,h:4,coupleCount:3,special:{t:2,cross:2,switch:2,blocker:2,portal:1}}
+  ];
+  const cfg=configs[round];
+
+  // Kreuzungen dürfen auf der Lösungsroute nur gerade durchfahren werden.
+  // Deshalb suchen wir eine zufällige Route mit genügend geraden Innenpositionen.
+  let path=null;
+  for(let attempt=0;attempt<30;attempt++){
+    const candidate=randomHamiltonianPath(cfg.w,cfg.h);
+    let straightInterior=0;
+    for(let i=1;i<candidate.length-1;i++){
+      const cur=candidate[i],prev=candidate[i-1],next=candidate[i+1];
+      const dirs=[dirBetween(cur,prev),dirBetween(cur,next)];
+      if(((dirs[0]+2)%4)===dirs[1]) straightInterior++;
+    }
+    path=candidate;
+    if(straightInterior>=cfg.special.cross) break;
+  }
+
+  const total=cfg.w*cfg.h;
+  const pathDirs=Array(total);
+  const baseShapes=Array(total);
+  const types=Array(total);
+  const target=Array(total).fill(0);
+  const rots=Array(total).fill(0);
+  const states=Array(total).fill(true);
+  const blockerCommon=Array(total).fill(null);
+  const blockerTarget=Array(total).fill(null);
+  const blockerAlt=Array(total).fill(null);
+  const portalPairOf=Array(total).fill(-1);
+  const portalPairId=Array(total).fill(-1);
+  const portalPairs=[];
+
+  // Geometrisch korrekte Hauptstrecke bestimmen.
+  for(let i=0;i<path.length;i++){
+    const cur=path[i];
+    const prev=i===0?{x:cur.x-1,y:cur.y}:path[i-1];
+    const next=i===path.length-1?{x:cur.x+1,y:cur.y}:path[i+1];
+    const dirs=[dirBetween(cur,prev),dirBetween(cur,next)];
+    const opposite=((dirs[0]+2)%4)===dirs[1];
+    const shape=opposite?"straight":"corner";
+    const idx=cur.y*cfg.w+cur.x;
+    pathDirs[idx]=dirs;
+    baseShapes[idx]=shape;
+    types[idx]=shape;
+    target[idx]=canonicalRotation(shape,routingTargetFor(shape,dirs));
+  }
+
+  const startIdx=path[0].y*cfg.w+path[0].x;
+  const endIdx=path[path.length-1].y*cfg.w+path[path.length-1].x;
+  const allInterior=Array.from({length:total},(_,i)=>i).filter(i=>i!==startIdx&&i!==endIdx);
+  const usedSpecial=new Set();
+
+  // Portal-Paar: Der Strom läuft bis Portal A, springt zu Portal B und setzt
+  // dort in einer unabhängig ausgerichteten Richtung seinen Weg fort.
+  // Die dazwischenliegende physische Teilstrecke ist in der Soll-Lösung nicht aktiv.
+  let portalStartPos=-1,portalEndPos=-1;
+  if(cfg.special.portal>0 && path.length>=8){
+    const candidates=[];
+    for(let a=1;a<=path.length-5;a++){
+      for(let b=a+3;b<=path.length-2;b++) candidates.push([a,b]);
+    }
+    if(candidates.length){
+      const [aPos,bPos]=candidates[Math.floor(Math.random()*candidates.length)];
+      portalStartPos=aPos;portalEndPos=bPos;
+      const aCell=path[aPos], bCell=path[bPos];
+      const aIdx=aCell.y*cfg.w+aCell.x, bIdx=bCell.y*cfg.w+bCell.x;
+      const aPrev=path[aPos-1], bNext=path[bPos+1];
+      const aIn=dirBetween(aCell,aPrev);
+      const bOut=dirBetween(bCell,bNext);
+      types[aIdx]="portal";types[bIdx]="portal";
+      target[aIdx]=aIn;target[bIdx]=bOut;
+      portalPairOf[aIdx]=bIdx;portalPairOf[bIdx]=aIdx;
+      portalPairId[aIdx]=0;portalPairId[bIdx]=0;
+      portalPairs.push([aIdx,bIdx]);
+      usedSpecial.add(aIdx);usedSpecial.add(bIdx);
+    }
+  }
+
+  function eligibleFor(type,idx){
+    if(usedSpecial.has(idx)) return false;
+    if(type==="cross"){
+      const dirs=pathDirs[idx];
+      return dirs && ((dirs[0]+2)%4)===dirs[1];
+    }
+    return true;
+  }
+  function assignSpecial(type,count){
+    for(let n=0;n<count;n++){
+      const pool=shuffleCopy(allInterior.filter(i=>eligibleFor(type,i)));
+      if(!pool.length) break;
+      const idx=pool[0];
+      usedSpecial.add(idx);
+      types[idx]=type;
+      if(type==="t"){
+        const dirs=[...pathDirs[idx],extraDirectionForT(pathDirs[idx])];
+        target[idx]=routingTargetFor("t",dirs);
+      }else if(type==="cross"){
+        target[idx]=0;
+      }else if(type==="switch"){
+        target[idx]=canonicalRotation(baseShapes[idx],routingTargetFor(baseShapes[idx],pathDirs[idx]));
+        states[idx]=true;
+      }else if(type==="blocker"){
+        // Blocker = Weiche mit einem gemeinsamen Anschluss und zwei möglichen Wegen.
+        // In der Lösungsstellung verbindet er die beiden Richtungen der Hauptstrecke.
+        const dirs=pathDirs[idx].slice();
+        const common=dirs[Math.floor(Math.random()*2)];
+        const wanted=dirs[0]===common?dirs[1]:dirs[0];
+        const alternatives=[0,1,2,3].filter(d=>d!==common&&d!==wanted);
+        const alt=alternatives[Math.floor(Math.random()*alternatives.length)];
+        blockerCommon[idx]=common;
+        blockerTarget[idx]=wanted;
+        blockerAlt[idx]=alt;
+        states[idx]=true; // true = Lösungsweg, false = Alternativweg
+        target[idx]=0;
+      }
+    }
+  }
+  assignSpecial("cross",cfg.special.cross);
+  assignSpecial("t",cfg.special.t);
+  assignSpecial("switch",cfg.special.switch);
+  assignSpecial("blocker",cfg.special.blocker);
+
+  // Gekoppelte Module nur mit gleicher Manipulations-Zykluslänge koppeln.
+  const couplePool=Array.from({length:total},(_,i)=>i)
+    .filter(i=>i!==startIdx&&i!==endIdx&&types[i]!=="portal"&&moduleCycle(types[i])>1);
+  const byCycle={2:shuffleCopy(couplePool.filter(i=>moduleCycle(types[i])===2)),4:shuffleCopy(couplePool.filter(i=>moduleCycle(types[i])===4))};
+  const couples=[];
+  while(couples.length<cfg.coupleCount){
+    const possible=[2,4].filter(c=>(byCycle[c]||[]).length>=2);
+    if(!possible.length) break;
+    const c=possible[Math.floor(Math.random()*possible.length)];
+    couples.push([byCycle[c].pop(),byCycle[c].pop()]);
+  }
+  const activeRouteSet=new Set();
+  if(portalStartPos>=0 && portalEndPos>=0){
+    for(let i=0;i<=portalStartPos;i++) activeRouteSet.add(path[i].y*cfg.w+path[i].x);
+    for(let i=portalEndPos;i<path.length;i++) activeRouteSet.add(path[i].y*cfg.w+path[i].x);
+  }else{
+    for(const cell of path) activeRouteSet.add(cell.y*cfg.w+cell.x);
+  }
+  function setFromTarget(idx,offset){
+    const type=types[idx];
+    const cycle=moduleCycle(type);
+    if(type==="switch"||type==="blocker"){
+      if(type==="switch") rots[idx]=target[idx];
+      states[idx]=(offset%2===0);
+    }else if(type==="straight"){
+      rots[idx]=(target[idx]+offset)%2;
+      states[idx]=true;
+    }else if(type==="corner"||type==="t"||type==="portal"){
+      rots[idx]=(target[idx]+offset)%4;
+      states[idx]=true;
+    }else{
+      rots[idx]=target[idx];
+      states[idx]=true;
+    }
+  }
+
+  const initialized=new Set();
+  for(const [a,b] of couples){
+    const cycle=moduleCycle(types[a]);
+    const offset=1+Math.floor(Math.random()*(cycle-1));
+    setFromTarget(a,offset);setFromTarget(b,offset);
+    initialized.add(a);initialized.add(b);
+  }
+
+  for(let i=0;i<total;i++){
+    if(initialized.has(i)) continue;
+    const cycle=moduleCycle(types[i]);
+    if(cycle===1){setFromTarget(i,0);continue}
+    const wrong=Math.random()<.72;
+    const offset=wrong?(1+Math.floor(Math.random()*(cycle-1))):0;
+    setFromTarget(i,offset);
+  }
+
+  return {...cfg,couples,types,target,rots,states,baseShapes,pathDirs,path,startIdx,endIdx,selected:startIdx,blockerCommon,blockerTarget,blockerAlt,portalPairOf,portalPairId,portalPairs,portalStartPos,portalEndPos,activeRouteSet};
+}
+function solvedRoutingBoard(board){
+  // Separate Zielstellung zur Qualitätsprüfung der Zufallsgenerierung.
+  // Schalter sind AN, Blocker stehen auf dem Lösungszweig und alle drehbaren
+  // Module/Portale erhalten ihre Zielorientierung.
+  return {
+    ...board,
+    rots:board.target.slice(),
+    states:Array(board.types.length).fill(true)
+  };
+}
+function makeRoutingBoard(round){
+  // Jeder Durchgang – ausdrücklich auch Durchgang 1 – wird verworfen, wenn
+  // in der korrekten Lösung weniger als 50 % aller Module Strom führen.
+  const minCoverageRatio=.50;
+  for(;;){
+    const board=makeRoutingBoardAttempt(round);
+    const test=analyzeRouting(solvedRoutingBoard(board),false);
+    const minModules=Math.ceil(board.types.length*minCoverageRatio);
+    if(test.success && test.seen.size>=minModules){
+      board.solutionCoverage=test.seen.size/board.types.length;
+      return board;
+    }
+  }
+}
+function moduleConnectors(board,idx){
+  const type=board.types[idx];
+  if(type==="switch"){
+    if(!board.states[idx]) return [];
+    return connectors(board.baseShapes[idx],board.rots[idx]);
+  }
+  if(type==="blocker"){
+    const common=board.blockerCommon[idx];
+    const branch=board.states[idx]?board.blockerTarget[idx]:board.blockerAlt[idx];
+    return [common,branch];
+  }
+  if(type==="portal") return [((board.rots[idx]%4)+4)%4];
+  return connectors(type,board.rots[idx]);
+}
+function moduleExits(board,idx,entrySide){
+  const type=board.types[idx];
+  const cons=moduleConnectors(board,idx);
+  if(!cons.includes(entrySide)) return [];
+  if(type==="cross"){
+    // Kreuzung ist keine Abzweigung: immer ausschließlich gerade hindurch.
+    return [((entrySide+2)%4)];
+  }
+  return cons.filter(d=>d!==entrySide);
+}
+function analyzeRouting(board,withSteps=false){
+  const dx=[0,1,0,-1],dy=[-1,0,1,0];
+  const startEntry=3; // Strom kommt von links in das Startmodul.
+  const startCons=moduleConnectors(board,board.startIdx);
+  const steps=[];
+  const energized=new Set();
+  if(!startCons.includes(startEntry)){
+    if(withSteps) steps.push({kind:"module",idx:board.startIdx,entry:startEntry});
+    return {success:false,steps,seen:energized};
+  }
+
+  const q=[{idx:board.startIdx,entry:startEntry}];
+  const seenStates=new Set([`${board.startIdx}|${startEntry}`]);
+  energized.add(board.startIdx);
+  if(withSteps) steps.push({kind:"module",idx:board.startIdx,entry:startEntry});
+  let reachedExit=false;
+
+  for(let qi=0;qi<q.length;qi++){
+    const {idx,entry}=q[qi];
+    const type=board.types[idx];
+
+    // Portal: Wird es von außen durch seinen einzigen Anschluss betreten,
+    // endet der Strom lokal und erscheint am gekoppelten Portal wieder.
+    if(type==="portal" && entry!=="portal"){
+      const cons=moduleConnectors(board,idx);
+      if(!cons.includes(entry)) continue;
+      const pair=board.portalPairOf[idx];
+      if(pair>=0){
+        if(withSteps) steps.push({kind:"portal",from:idx,to:pair});
+        const stateKey=`${pair}|P`;
+        if(!seenStates.has(stateKey)){
+          seenStates.add(stateKey);
+          energized.add(pair);
+          q.push({idx:pair,entry:"portal"});
+          if(withSteps) steps.push({kind:"module",idx:pair,entry:"portal"});
+        }
+      }
+      continue;
+    }
+
+    const x=idx%board.w,y=Math.floor(idx/board.w);
+    const exits=(type==="portal" && entry==="portal") ? moduleConnectors(board,idx) : moduleExits(board,idx,entry);
+    for(const d of exits){
+      const nx=x+dx[d],ny=y+dy[d];
+      if(nx<0||ny<0||nx>=board.w||ny>=board.h){
+        if(idx===board.endIdx && d===1){
+          if(withSteps) steps.push({kind:"exit",from:idx,side:d});
+          reachedExit=true;
+        }
+        continue;
+      }
+      const ni=ny*board.w+nx;
+      const needed=(d+2)%4;
+      if(!moduleConnectors(board,ni).includes(needed)) continue;
+      if(withSteps) steps.push({kind:"edge",from:idx,to:ni,side:d});
+      const stateKey=`${ni}|${needed}`;
+      if(!seenStates.has(stateKey)){
+        seenStates.add(stateKey);
+        q.push({idx:ni,entry:needed});
+        if(withSteps) steps.push({kind:"module",idx:ni,entry:needed});
+        energized.add(ni);
+      }
+    }
+  }
+  const success=reachedExit;
+  return {success,steps,seen:energized};
+}
+function routingSolved(board){return analyzeRouting(board,false).success}
+function moveRoutingSelection(dx,dy){
+  const p=s.puzzle;if(!p||p.type!=="routing"||p.phase!=="idle")return;
+  const b=p.board,x=b.selected%b.w,y=Math.floor(b.selected/b.w);
+  const nx=Math.max(0,Math.min(b.w-1,x+dx)),ny=Math.max(0,Math.min(b.h-1,y+dy));
+  b.selected=ny*b.w+nx;sfx("turn");
+}
+function manipulateModule(board,i){
+  const type=board.types[i];
+  if(type==="straight") board.rots[i]=(board.rots[i]+1)%2;
+  else if(type==="corner"||type==="t"||type==="portal") board.rots[i]=(board.rots[i]+1)%4;
+  else if(type==="switch"||type==="blocker") board.states[i]=!board.states[i];
+  // Kreuzung hat keine sinnvolle Drehung und bleibt unverändert.
+}
+function manipulateRouting(){
+  const p=s.puzzle;if(!p||p.type!=="routing"||p.phase!=="idle")return;
+  const b=p.board,i=b.selected;
+  manipulateModule(b,i);
+  const pair=b.couples.find(([a,c])=>a===i||c===i);
+  if(pair){
+    const other=pair[0]===i?pair[1]:pair[0];
+    manipulateModule(b,other);
+  }
+  if(b.types[i]!=="cross") sfx("turn");
+}
+function traceRouting(board){return analyzeRouting(board,true)}
+function beginRoutingCountdown(){
+  const p=s.puzzle;if(!p||p.type!=="routing"||p.phase!=="idle"||s.paused)return;
+  p.phase="countdown";
+  p.roundDeadline=0;
+  p.countdownValue=3;
+  p.nextCountdown=performance.now()+650;
+  p.flowTrace=null;
+  p.flowIndex=0;
+  sfx("terminal");
+}
+function finalizeRoutingResult(p){
+  const success=!!(p.flowTrace && p.flowTrace.success && routingSolved(p.board));
+  p.phase="resultFlash";
+  p.flashKind=success?"success":"error";
+  p.flashUntil=performance.now()+430;
+  p.resultSuccess=success;
+  if(success) sfx("ok"); else sfx("bad");
+}
+function finishRoutingFlash(p){
+  if(p.resultSuccess){
+    if(p.round<2){
+      p.round++;
+      p.board=makeRoutingBoard(p.round);
+      p.status=`Durchgang ${p.round+1}`;
+      p.phase="idle";
+      p.flowTrace=null;
+      p.flowIndex=0;
+      p.flashKind=null;
+      p.roundDeadline=performance.now()+ROUTING_ROUND_MS;
+      p.roundSeconds=ROUTING_ROUND_SECONDS;
+      sfx("miniwin");
+    }else solvePuzzle();
+  }else{
+    puzzleAlarm("Schaltung fehlerhaft.");
+    if(s.puzzle && s.puzzle.type==="routing"){
+      s.puzzle.phase="idle";
+      s.puzzle.flowTrace=null;
+      s.puzzle.flowIndex=0;
+      s.puzzle.flashKind=null;
+      s.puzzle.status=`Durchgang ${s.puzzle.round+1}`;
+      s.puzzle.roundDeadline=performance.now()+ROUTING_ROUND_MS;
+      s.puzzle.roundSeconds=ROUTING_ROUND_SECONDS;
+    }
+  }
+}
+function puzzleAlarm(text){
+  increaseAlarm();sfx("bad");
+  if(s.alarms>=9){s.puzzle=null;s.lost=true;return true}
+  if(s.puzzle)s.puzzle.status=`${text} Alarm ${s.alarms}/9.`;
+  return false;
+}
+
+// --- Spiel 3: Forschung / Drei-Leistungs-Sammler -----------------------
+function shuffleInPlace(a){
+  for(let i=a.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [a[i],a[j]]=[a[j],a[i]];
+  }
+  return a;
+}
+function partitionTen(parts){
+  const cuts=[];
+  while(cuts.length<parts-1){
+    const v=1+Math.floor(Math.random()*9);
+    if(!cuts.includes(v))cuts.push(v);
+  }
+  cuts.sort((a,b)=>a-b);
+  const pts=[0,...cuts,10];
+  return pts.slice(1).map((v,i)=>v-pts[i]);
+}
+function makePowerItems(round){
+  const solutionCount=6+round;
+  const durationMs=powerRoundMs(round);
+  const spawnInterval=800;
+  // So lange der Countdown läuft, fallen keine Elemente. Während der eigentlichen
+  // Runde erscheinen dagegen bis fast zum Ablauf neue Elemente; mindestens ein
+  // Element ist am Rundenende noch unterwegs bzw. im Auswahlbereich.
+  const totalCount=Math.max(solutionCount+8,Math.ceil((durationMs-2000)/spawnInterval)+1);
+  const decoyCount=Math.max(0,totalCount-solutionCount);
+  const good=Array.from({length:solutionCount},()=>[0,0,0]);
+  // Jede Farbe wird auf mehrere der guten Elemente verteilt; deren Gesamtsumme ist exakt 10.
+  for(let c=0;c<3;c++){
+    const parts=Math.min(solutionCount,3+Math.floor(Math.random()*3));
+    const chunks=partitionTen(parts);
+    const slots=shuffleInPlace(Array.from({length:solutionCount},(_,i)=>i)).slice(0,parts);
+    chunks.forEach((v,i)=>good[slots[i]][c]+=v);
+  }
+  // Falls zufällig ein Element leer blieb, koppeln wir es mit einem kleinen Anteil eines anderen Elements.
+  for(let i=0;i<good.length;i++){
+    if(good[i].some(v=>v!==0))continue;
+    const donor=good.findIndex((v,j)=>j!==i&&v.some(x=>x>=2));
+    if(donor>=0){
+      const c=good[donor].findIndex(x=>x>=2);
+      good[donor][c]-=1;good[i][c]=1;
+    }else return makePowerItems(round);
+  }
+  const result=Array(totalCount).fill(null);
+  // Alle zur garantierten 10/10/10-Lösung gehörenden Elemente erscheinen früh
+  // genug, um den Auswahlrahmen vor Ablauf der Zeit vollständig zu erreichen.
+  const latestGoodIndex=Math.max(solutionCount-1,Math.floor((durationMs-3200)/spawnInterval));
+  const goodSlots=shuffleInPlace(Array.from({length:Math.min(totalCount,latestGoodIndex+1)},(_,i)=>i)).slice(0,solutionCount);
+  good.forEach((vals,i)=>{
+    result[goodSlots[i]]={vals,solution:true,id:`G${round}-${i}`};
+  });
+  let decoyId=0;
+  for(let i=0;i<result.length;i++){
+    if(result[i])continue;
+    const vals=[0,0,0];
+    const dims=1+Math.floor(Math.random()*3);
+    const colors=shuffleInPlace([0,1,2]).slice(0,dims);
+    for(const c of colors){
+      let v=1+Math.floor(Math.random()*5);
+      if(Math.random()<.48)v=-v;
+      vals[c]=v;
+    }
+    result[i]={vals,solution:false,id:`D${round}-${decoyId++}`};
+  }
+  // Genau ein Joker ersetzt ein reguläres Element und erreicht den Auswahlrahmen
+  // garantiert zwischen 5 und 10 Sekunden vor Rundenende. Die garantierten
+  // Lösungselemente bleiben erhalten; falls nötig, wird vorher ein Decoy in den Zielslot getauscht.
+  const speed=powerFallSpeed(round);
+  const frameCenterY=(328+434)/2;
+  const travelToFrameMs=((frameCenterY-118)/speed)*1000;
+  const jokerCandidates=[];
+  for(let i=0;i<result.length;i++){
+    const arrivalMs=i*spawnInterval+travelToFrameMs;
+    const remainingMs=durationMs-arrivalMs;
+    if(remainingMs>=5000&&remainingMs<=10000) jokerCandidates.push(i);
+  }
+  if(!jokerCandidates.length) return makePowerItems(round);
+  const jokerSlot=jokerCandidates[Math.floor(Math.random()*jokerCandidates.length)];
+  if(result[jokerSlot].solution){
+    const swapSlot=result.findIndex((it,i)=>!it.solution && i!==jokerSlot && i<=latestGoodIndex);
+    if(swapSlot<0) return makePowerItems(round);
+    [result[jokerSlot],result[swapSlot]]=[result[swapSlot],result[jokerSlot]];
+  }
+  result[jokerSlot]={vals:[0,0,0],solution:false,type:"joker",id:`J${round}`,joker:true};
+
+  return result.map((it,i)=>({
+    ...it,
+    type:it.type||"normal",
+    spawnDelay:i*spawnInterval,
+    selected:false,
+    passed:false
+  }));
+}
+function preparePowerEndgameItems(p,now=performance.now()){
+  if(!p||p.type!=="power"||p.phase!=="play"||p.endgamePrepared)return;
+  p.endgamePrepared=true;
+
+  // In den letzten fünf Sekunden stehen gezielt regulär aussehende Elemente
+  // bereit, mit denen der aktuelle Stand noch auf 10/10/10 gebracht werden kann.
+  // Die Werte werden einmalig aus dem Stand beim Planen berechnet. Wer danach
+  // nur diese Hilfselemente nimmt, kann die Runde noch gewinnen.
+  const deficits=p.values.map(v=>Math.max(0,10-v));
+  const needed=deficits.map((v,i)=>({v,i})).filter(o=>o.v>0);
+  if(!needed.length)return;
+
+  const durationMs=powerRoundMs(p.round);
+  const speed=powerFallSpeed(p.round);
+  const frameCenterY=(328+434)/2;
+  const travelToFrameMs=((frameCenterY-118)/speed)*1000;
+  const targetRemaining=[4300,2800,1300];
+  const used=new Set();
+  const elapsed=Math.max(0,now-p.roundStart);
+
+  for(let n=0;n<needed.length;n++){
+    const target=needed[n];
+    const desiredSpawn=durationMs-targetRemaining[Math.min(n,targetRemaining.length-1)]-travelToFrameMs;
+    let best=-1,bestDist=Infinity;
+
+    for(let i=0;i<p.items.length;i++){
+      const it=p.items[i];
+      if(used.has(i)||it.selected||it.passed||it.type==="joker"||it.endgame)continue;
+      // Nur Elemente verwenden, die noch nicht sichtbar losgelaufen sind.
+      if(it.spawnDelay<=elapsed+120)continue;
+      const d=Math.abs(it.spawnDelay-desiredSpawn);
+      if(d<bestDist){best=i;bestDist=d}
+    }
+    // Falls unter den Decoys/normalen Elementen nichts Passendes übrig ist,
+    // nehmen wir das nächstliegende noch nicht gestartete Nicht-Joker-Element.
+    if(best<0){
+      for(let i=0;i<p.items.length;i++){
+        const it=p.items[i];
+        if(used.has(i)||it.selected||it.passed||it.type==="joker"||it.endgame)continue;
+        if(it.spawnDelay<=elapsed+120)continue;
+        const d=Math.abs(it.spawnDelay-desiredSpawn);
+        if(d<bestDist){best=i;bestDist=d}
+      }
+    }
+    if(best<0)continue;
+
+    const vals=[0,0,0];
+    vals[target.i]=target.v;
+    const old=p.items[best];
+    p.items[best]={
+      ...old,
+      vals,
+      solution:false,
+      type:"normal",
+      endgame:true,
+      selected:false,
+      passed:false
+    };
+    used.add(best);
+  }
+}
+
+function preparePowerCountdown(p,now=performance.now(),regenerate=false){
+  p.values=[0,0,0];
+  // Nach einem bereits geplanten Endspiel erzeugen wir für einen Neustart
+  // wieder eine saubere Elementfolge, damit die Hilfselemente neu zum aktuellen
+  // Spielstand berechnet werden können.
+  if(regenerate||!p.items||p.items.some(it=>it.endgame))p.items=makePowerItems(p.round);
+  else p.items.forEach(it=>{it.selected=false;it.passed=false});
+  p.phase="countdown";
+  p.countdownValue=3;
+  p.nextCountdown=now+650;
+  p.roundStart=0;
+  p.roundDeadline=0;
+  p.roundSeconds=powerRoundSeconds(p.round);
+  p.barFlash=[0,0,0];
+  p.restartAt=0;
+  p.endgamePrepared=false;
+  p.status=`Runde ${p.round+1}`;
+}
+function startPowerPlay(p,now=performance.now()){
+  p.phase="play";
+  p.roundStart=now;
+  p.roundDeadline=now+powerRoundMs(p.round);
+  p.roundSeconds=powerRoundSeconds(p.round);
+  p.items.forEach(it=>{it.selected=false;it.passed=false});
+  p.endgamePrepared=false;
+  p.status=`Runde ${p.round+1}`;
+}
+function schedulePowerRestart(p,now=performance.now(),reason=""){
+  p.phase="restartDelay";
+  p.restartAt=now+650;
+  p.status=reason;
+}
+function advancePowerRound(p,now=performance.now()){
+  if(p.round<2){
+    p.round++;
+    p.items=null;
+    preparePowerCountdown(p,now,true);
+  }else{
+    solvePuzzle();
+  }
+}
+function powerItemY(p,item,now){
+  const speed=powerFallSpeed(p.round);
+  if(!p.roundStart)return 118;
+  return 118 + Math.max(0,(now-p.roundStart-item.spawnDelay)/1000)*speed;
+}
+function activePowerItem(p,now){
+  const frameTop=328,frameBottom=434;
+  let best=null,bestDist=Infinity;
+  for(const it of p.items){
+    if(it.selected||it.passed||!p.roundStart||now<p.roundStart+it.spawnDelay)continue;
+    const y=powerItemY(p,it,now);
+    if(y>=frameTop&&y<=frameBottom){
+      const d=Math.abs(y-(frameTop+frameBottom)/2);
+      if(d<bestDist){best=it;bestDist=d}
+    }
+  }
+  return best;
+}
+function powerParts(it){
+  return it.vals.map((v,i)=>({v,i})).filter(o=>o.v!==0);
+}
+function selectPowerPart(direction){
+  const p=s.puzzle;if(!p||p.type!=="power"||s.paused||p.phase!=="play")return;
+  const now=performance.now();
+  const it=activePowerItem(p,now);
+  if(!it){sfx("bad");return}
+
+  const delta=[0,0,0];
+  let jokerTarget=-1;
+  if(it.type==="joker"){
+    // Joker: genau einen Balken sofort auf 10 auffüllen. Oben bewirkt nichts.
+    if(direction==="left") jokerTarget=0;       // Rot
+    else if(direction==="down") jokerTarget=1; // Blau
+    else if(direction==="right") jokerTarget=2;// Grün
+    else if(direction==="up") return;
+    else return;
+  }else{
+    const parts=powerParts(it);
+    let chosen=[];
+    if(direction==="up"){
+      chosen=parts;
+    }else if(direction==="left" && (parts.length===2||parts.length===3)){
+      chosen=[parts[0]];
+    }else if(direction==="right" && (parts.length===2||parts.length===3)){
+      chosen=[parts[parts.length-1]];
+    }else if(direction==="down" && (parts.length===1||parts.length===3)){
+      chosen=[parts.length===1?parts[0]:parts[1]];
+    }else{
+      sfx("bad");
+      return;
+    }
+    for(const part of chosen) delta[part.i]=part.v;
+  }
+
+  it.selected=true;
+  const next=p.values.slice();
+  if(it.type==="joker"){
+    next[jokerTarget]=10;
+  }else{
+    for(let i=0;i<3;i++) next[i]=Math.max(0,next[i]+delta[i]);
+  }
+  const over=next.map(v=>v>10);
+  p.values=next;
+  p.barFlash=over.map(v=>v?now+650:0);
+  if(over.some(Boolean)){
+    increaseAlarm();sfx("bad");
+    if(s.alarms>=9){s.puzzle=null;s.lost=true;return}
+    schedulePowerRestart(p,now,"Überlastung");
+    return;
+  }else sfx(it.type==="joker"?"ok":"turn");
+  if(p.values.every(v=>v===10)){
+    p.phase="success";
+    p.successStart=now;
+    p.successUntil=now+1100;
+    p.status=`Runde ${p.round+1} geschafft!`;
+    sfx("miniwin");
+  }
+}
+
+function openPuzzle(t){
+  sfx("terminal");
+  if(t.id==="archiv"){
+    s.puzzle={type:"routing",terminal:t,round:0,board:makeRoutingBoard(0),status:"Durchgang 1",phase:"idle",countdownValue:0,nextCountdown:0,flowTrace:null,flowIndex:0,nextFlow:0,flashKind:null,flashUntil:0,resultSuccess:false,roundDeadline:performance.now()+ROUTING_ROUND_MS,roundSeconds:ROUTING_ROUND_SECONDS};
+  }else if(t.id==="cam"){
+    const lengths=[5,7,10];
+    const sequences=lengths.map(len=>Array.from({length:len},()=>Math.floor(Math.random()*4)));
+    const fakePositions=lengths.map(len=>Math.floor(Math.random()*(len+1)));
+    const fakeValues=lengths.map(()=>Math.floor(Math.random()*4));
+    function makeDisplaySeq(round){
+      const a=sequences[round].map(v=>({v,fake:false}));
+      a.splice(fakePositions[round],0,{v:fakeValues[round],fake:true});
+      return a;
+    }
+    s.puzzle={
+      type:"sequence",terminal:t,sequences,makeDisplaySeq,round:0,
+      seq:sequences[0],displaySeq:makeDisplaySeq(0),input:[],phase:"countdown",showIndex:0,
+      countdownValue:3,nextCountdown:performance.now()+550,
+      nextFlash:0,inputDeadline:0,
+      status:"Sequenz 1"
+    };
+  }else{
+    const now=performance.now();
+    s.puzzle={type:"power",terminal:t,round:0,phase:"countdown",values:[0,0,0],items:makePowerItems(0),roundStart:0,roundDeadline:0,roundSeconds:powerRoundSeconds(0),barFlash:[0,0,0],status:"Runde 1",countdownValue:3,nextCountdown:now+650,restartAt:0,endgamePrepared:false};
+  }
+}
+function solvePuzzle(){
+  const p=s.puzzle;if(!p)return;
+  p.terminal.solved=true;
+  s.checkpoint={...p.terminal.pos};
+  s.puzzle=null;
+  sfx("miniwin");
+  updateHud();
+  const n=terminals.filter(t=>t.solved).length;
+  showMessage(`DATENFRAGMENT ${n}/3 GESICHERT${n===3?" – Übertragungspunkt freigeschaltet!":""}`,2600);
+}
+function puzzleKey(n){
+  const p=s.puzzle;if(!p)return;
+  if(p.type==="sequence"){
+    if(p.phase!=="input")return;
+    const v=n-1;if(v<0||v>3)return;
+    if(p.input.length>=p.seq.length)return;
+    p.input.push(v);sfx("turn");
+    p.inputDeadline=performance.now()+5000;
+    if(p.input.length===p.seq.length){
+      p.testAllOnes=p.input.every(x=>x===0);
+      p.phase="waitVerify";
+      p.verifyPos=0;
+      p.verifyLit=-1;
+      p.inputDeadline=0;
+      p.nextVerify=performance.now()+1000;
+    }
+  }
+}
+function puzzleEnter(){
+  const p=s.puzzle;if(!p)return;
+  if(p.type==="routing"){
+    beginRoutingCountdown();
+  }
+}
+
+function shiftTimestamp(obj,key,delta){
+  if(obj && typeof obj[key]==="number" && obj[key]>0) obj[key]+=delta;
+}
+function togglePause(){
+  const now=performance.now();
+  if(!s.paused){
+    s.paused=true;
+    s.pauseStarted=now;
+    return;
+  }
+  const delta=Math.max(0,now-(s.pauseStarted||now));
+  s.paused=false;
+  s.pauseStarted=0;
+  shiftTimestamp(s,"virusNextMove",delta);
+  shiftTimestamp(s,"messageUntil",delta);
+  const p=s.puzzle;
+  if(p){
+    ["roundStart","roundDeadline","successStart","successUntil","nextCountdown","nextFlow","flashUntil","nextFlash","inputDeadline","nextVerify","errorFlashUntil","resetAt","nextRoundAt","restartAt"].forEach(k=>shiftTimestamp(p,k,delta));
+  }
+}
+
+function update(now){
+  if(s.paused) return;
+  const p=s.puzzle;
+  if(p&&p.type==="routing"){
+    if(p.phase==="idle" && p.roundDeadline){
+      p.roundSeconds=Math.max(0,Math.ceil((p.roundDeadline-now)/1000));
+      if(now>=p.roundDeadline){
+        if(!puzzleAlarm("Zeit abgelaufen.")){
+          if(s.puzzle&&s.puzzle.type==="routing"){
+            s.puzzle.roundDeadline=now+ROUTING_ROUND_MS;
+            s.puzzle.roundSeconds=ROUTING_ROUND_SECONDS;
+            s.puzzle.status=`Durchgang ${s.puzzle.round+1}`;
+          }
+        }
+      }
+    }
+    if(p.phase==="countdown" && now>=p.nextCountdown){
+      if(p.countdownValue>1){
+        p.countdownValue--;
+        p.nextCountdown=now+650;
+        sfx("scan");
+      }else{
+        p.phase="flow";
+        p.status=`Durchgang ${p.round+1}`;
+        p.flowTrace=traceRouting(p.board);
+        p.flowIndex=0;
+        p.nextFlow=now+170;
+        sfx("ok");
+      }
+    }else if(p.phase==="flow" && now>=p.nextFlow){
+      if(p.flowTrace && p.flowIndex<p.flowTrace.steps.length){
+        p.flowIndex++;
+        p.nextFlow=now+185;
+        tone(900,.04,"triangle",.02);
+      }else{
+        finalizeRoutingResult(p);
+      }
+    }else if(p.phase==="resultFlash" && now>=p.flashUntil){
+      finishRoutingFlash(p);
+    }
+  }
+  if(p&&p.type==="sequence"){
+    if(p.phase==="countdown" && now>=p.nextCountdown){
+      if(p.countdownValue>1){
+        p.countdownValue--;
+        p.nextCountdown=now+550;
+      }else{
+        p.phase="show";
+        p.countdownValue=0;
+        p.showIndex=0;
+        p.nextFlash=now+220;
+      }
+    }else if(p.phase==="show" && now>=p.nextFlash){
+      p.showIndex++;
+      if(p.showIndex>=p.displaySeq.length*2+1){
+        p.phase="input";
+        p.inputDeadline=now+5000;
+        p.status=`Sequenz ${p.round+1} eingeben.`;
+      }else{
+        if(p.showIndex%2===1){
+          const token=p.displaySeq[Math.floor(p.showIndex/2)];
+          if(token) sequenceTone(token.v);
+        }
+        p.nextFlash=now+330;
+      }
+    }else if(p.phase==="input" && p.inputDeadline && now>=p.inputDeadline){
+      increaseAlarm();
+      p.phase="error";
+      p.status=`Sequenz ${p.round+1} falsch – Alarm ${s.alarms}/9.`;
+      p.errorFlashUntil=now+420;
+      p.failAfterError=s.alarms>=9;
+      p.resetAt=now+(p.failAfterError?700:1000);
+      p.inputDeadline=0;
+      sfx("bad");
+    }else if(p.phase==="waitVerify" && now>=p.nextVerify){
+      p.phase="verify";
+      p.status=`Sequenz ${p.round+1} wird geprüft …`;
+      p.nextVerify=now;
+    }else if(p.phase==="verify" && now>=p.nextVerify){
+      if(p.verifyLit>=0){
+        p.verifyLit=-1;
+        p.verifyPos++;
+        if(p.verifyPos>=p.seq.length){
+          if(p.round<p.sequences.length-1){
+            p.phase="success";
+            p.status=`Sequenz ${p.round+1} korrekt!`;
+            p.nextRoundAt=now+1000;
+            sfx("ok");
+          }else{
+            solvePuzzle();
+          }
+        }else{
+          p.nextVerify=now+150;
+        }
+      }else if(p.testAllOnes || p.input[p.verifyPos]===p.seq[p.verifyPos]){
+        p.verifyLit=p.input[p.verifyPos];
+        sequenceTone(p.verifyLit);
+        p.nextVerify=now+300;
+      }else{
+        increaseAlarm();
+        p.phase="error";
+        p.status=`Sequenz ${p.round+1} falsch – Alarm ${s.alarms}/9.`;
+        p.errorFlashUntil=now+420;
+        p.failAfterError=s.alarms>=9;
+        p.resetAt=now+(p.failAfterError?700:1000);
+        sfx("bad");
+      }
+    }else if(p.phase==="error"&&now>=p.resetAt){
+      if(p.failAfterError){
+        s.puzzle=null;
+        s.lost=true;
+        sfx("bad");
+        return;
+      }
+      p.phase="countdown";
+      p.countdownValue=3;
+      p.nextCountdown=now+550;
+      p.showIndex=0;
+      p.input=[];
+      p.inputDeadline=0;
+      p.testAllOnes=false;
+      p.verifyPos=0;
+      p.verifyLit=-1;
+      p.failAfterError=false;
+      p.status=`Sequenz ${p.round+1}`;
+    }else if(p.phase==="success"&&now>=p.nextRoundAt){
+      p.round++;
+      p.seq=p.sequences[p.round];
+      p.displaySeq=p.makeDisplaySeq(p.round);
+      p.phase="countdown";
+      p.countdownValue=3;
+      p.nextCountdown=now+550;
+      p.showIndex=0;
+      p.input=[];
+      p.inputDeadline=0;
+      p.testAllOnes=false;
+      p.verifyPos=0;
+      p.verifyLit=-1;
+      p.status=`Sequenz ${p.round+1}`;
+    }
+  }
+  if(p&&p.type==="power"){
+    if(p.phase==="countdown" && now>=p.nextCountdown){
+      if(p.countdownValue>1){
+        p.countdownValue--;
+        p.nextCountdown=now+650;
+        sfx("scan");
+      }else{
+        p.countdownValue=0;
+        startPowerPlay(p,now);
+        sfx("start");
+      }
+    }else if(p.phase==="play"){
+      p.roundSeconds=Math.max(0,Math.ceil((p.roundDeadline-now)/1000));
+      if(!p.endgamePrepared && p.roundDeadline-now<=8000){
+        preparePowerEndgameItems(p,now);
+      }
+      for(const it of p.items){
+        if(!it.selected&&!it.passed&&now>=p.roundStart+it.spawnDelay&&powerItemY(p,it,now)>510) it.passed=true;
+      }
+      if(now>=p.roundDeadline){
+        increaseAlarm();sfx("bad");
+        if(s.alarms>=9){s.puzzle=null;s.lost=true;return}
+        schedulePowerRestart(p,now,"Zeit abgelaufen");
+      }
+    }else if(p.phase==="restartDelay" && now>=p.restartAt){
+      preparePowerCountdown(p,now,false);
+    }else if(p.phase==="success"&&now>=p.successUntil){
+      advancePowerRound(p,now);
+    }
+  }
+  if(!s.puzzle) updateVirus(now);
+}
+
+// --- drawing -------------------------------------------------------------
+function cellCenter(x,y){return {x:OX+x*CELL+CELL/2,y:OY+y*CELL+CELL/2}}
+function roundedRect(x,y,w,h,r){
+  ctx.beginPath();ctx.roundRect(x,y,w,h,r);
+}
+function drawCircuitBackdrop(){
+  ctx.fillStyle="#071218";ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle="rgba(90,210,185,.08)";ctx.lineWidth=1;
+  for(let x=18;x<W;x+=46){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke()}
+  for(let y=18;y<H;y+=46){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
+  ctx.strokeStyle="rgba(243,211,92,.10)";
+  for(let i=0;i<9;i++){
+    const y=25+i*70;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(35,y);ctx.lineTo(55,y+20);ctx.lineTo(110,y+20);ctx.stroke();
+  }
+}
+function drawMaze(now){
+  drawCircuitBackdrop();
+  // frame label
+  ctx.font="bold 13px system-ui";ctx.fillStyle="rgba(210,240,230,.7)";ctx.textAlign="left";
+  ctx.fillText("GREIF-NETZWERK // INTERN",OX,32);
+  ctx.textAlign="right";ctx.fillText(allSolved()?"UPLOAD: FREIGEGEBEN":"UPLOAD: GESPERRT",OX+COLS*CELL,32);
+
+  for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++){
+    const px=OX+x*CELL,py=OY+y*CELL;
+    if(maze[y][x]===1){
+      const grad=ctx.createLinearGradient(px,py,px+CELL,py+CELL);
+      grad.addColorStop(0,"#142630");grad.addColorStop(1,"#0d1c23");
+      ctx.fillStyle=grad;ctx.fillRect(px,py,CELL,CELL);
+      ctx.strokeStyle="rgba(103,177,166,.17)";ctx.strokeRect(px+.5,py+.5,CELL-1,CELL-1);
+      if((x+y)%3===0){ctx.fillStyle="rgba(110,215,188,.10)";ctx.fillRect(px+7,py+7,5,5);ctx.fillRect(px+20,py+20,7,3)}
+    }else{
+      ctx.fillStyle="#0b1820";ctx.fillRect(px,py,CELL,CELL);
+      ctx.strokeStyle="rgba(89,173,163,.07)";ctx.strokeRect(px+.5,py+.5,CELL-1,CELL-1);
+      // tiny circuit dot
+      ctx.fillStyle="rgba(111,216,195,.13)";ctx.beginPath();ctx.arc(px+CELL/2,py+CELL/2,1.6,0,Math.PI*2);ctx.fill();
+    }
+  }
+
+  // sichere Felder – das Virus kann diese Zellen nicht betreten
+  safeCells.forEach((p,i)=>{
+    const c=cellCenter(p.x,p.y);
+    ctx.save();
+    ctx.shadowBlur=12;ctx.shadowColor="#56e0c2";
+    ctx.fillStyle="rgba(45,130,110,.34)";
+    roundedRect(c.x-11,c.y-11,22,22,6);ctx.fill();
+    ctx.strokeStyle="#56e0c2";ctx.lineWidth=2;ctx.stroke();
+    ctx.shadowBlur=0;ctx.fillStyle="#9ff7e3";ctx.font="bold 9px system-ui";ctx.textAlign="center";ctx.textBaseline="middle";
+    ctx.fillText(i===0?"START":"SAFE",c.x,c.y+1);
+    ctx.restore();
+  });
+
+  // digitales Virus
+  drawVirus(s.virus.x,s.virus.y,now);
+
+  // scanners
+  scanners.forEach((sc,i)=>{
+    const c=cellCenter(sc.x,sc.y);const active=s.freezeScanners?false:scannerActive(sc,now);
+    ctx.save();
+    ctx.globalAlpha=active?.95:.28;
+    ctx.strokeStyle=active?"#ff5c68":"#a95760";ctx.lineWidth=4;
+    ctx.beginPath();ctx.moveTo(c.x-CELL*.40,c.y);ctx.lineTo(c.x+CELL*.40,c.y);ctx.stroke();
+    ctx.fillStyle=active?"#ffcccf":"#6e3e45";
+    ctx.beginPath();ctx.arc(c.x,c.y,4.5,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+  });
+
+  // terminals
+  terminals.forEach(t=>{
+    const c=cellCenter(t.pos.x,t.pos.y);
+    ctx.save();
+    ctx.shadowBlur=t.solved?8:18;ctx.shadowColor=t.color;
+    ctx.fillStyle=t.solved?"#1d4d34":"#102d38";
+    roundedRect(c.x-14,c.y-14,28,28,6);ctx.fill();
+    ctx.strokeStyle=t.color;ctx.lineWidth=2;ctx.stroke();
+    ctx.shadowBlur=0;ctx.font="17px system-ui";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(t.solved?"✓":t.icon,c.x,c.y+1);
+    ctx.font="bold 10px system-ui";ctx.fillStyle=t.color;
+    const tx=Math.max(OX+42,Math.min(OX+COLS*CELL-42,c.x));
+    ctx.fillText(t.label,tx,c.y-22);
+    ctx.restore();
+  });
+
+  // exit pad
+  {const c=cellCenter(exitPos.x,exitPos.y);ctx.save();
+    const unlocked=allSolved();
+    ctx.fillStyle=unlocked?"#463d12":"#29251b";roundedRect(c.x-15,c.y-15,30,30,7);ctx.fill();
+    ctx.strokeStyle=unlocked?"#f3d35c":"#6f6850";ctx.lineWidth=2;ctx.stroke();
+    ctx.font="18px system-ui";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(unlocked?"📡":"🔒",c.x,c.y+1);
+    ctx.font="bold 10px system-ui";ctx.fillStyle=unlocked?"#f3d35c":"#8d8877";ctx.fillText("UPLOAD",c.x,c.y-23);ctx.restore();}
+
+  drawBug(s.player.x,s.player.y,s.player.dir||"up",now);
+  drawMessage(now);
+  if(s.puzzle) drawPuzzle(now);
+}
+function drawVirus(gx,gy,now){
+  const c=cellCenter(gx,gy),pulse=1+Math.sin(now/120)*.08;
+  ctx.save();ctx.translate(c.x,c.y);ctx.scale(pulse,pulse);
+  ctx.shadowBlur=16;ctx.shadowColor="#ff4ec7";
+  ctx.fillStyle="#6e164f";ctx.strokeStyle="#ff65d2";ctx.lineWidth=2;
+  for(let i=0;i<8;i++){
+    const a=i*Math.PI/4;
+    ctx.beginPath();ctx.moveTo(Math.cos(a)*9,Math.sin(a)*9);ctx.lineTo(Math.cos(a)*15,Math.sin(a)*15);ctx.stroke();
+  }
+  ctx.beginPath();ctx.arc(0,0,10,0,Math.PI*2);ctx.fill();ctx.stroke();
+  ctx.shadowBlur=0;ctx.fillStyle="#ffb7ed";ctx.font="bold 11px system-ui";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("V",0,1);
+  ctx.restore();
+}
+function drawBug(gx,gy,dir,now){
+  const c=cellCenter(gx,gy), bob=Math.sin(now/130)*1.2;
+  if(bugTopDownImage.complete && bugTopDownImage.naturalWidth>0){
+    const size=24;
+    const angleMap={up:0,right:Math.PI/2,down:Math.PI,left:-Math.PI/2};
+    ctx.save();
+    ctx.translate(c.x,c.y+bob);
+    ctx.rotate(angleMap[dir] ?? 0);
+    ctx.shadowBlur=10;
+    ctx.shadowColor="rgba(243,211,92,.45)";
+    ctx.drawImage(bugTopDownImage,-size/2,-size/2,size,size);
+    ctx.restore();
+    return;
+  }
+
+  ctx.save();ctx.translate(c.x,c.y+bob);
+  ctx.strokeStyle="#e6b84c";ctx.lineWidth=2.2;ctx.lineCap="round";
+  for(const yy of [-7,0,7]){
+    ctx.beginPath();ctx.moveTo(-7,yy*.55);ctx.lineTo(-14,yy-4);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(7,yy*.55);ctx.lineTo(14,yy-4);ctx.stroke();
+  }
+  ctx.beginPath();ctx.moveTo(-4,-10);ctx.lineTo(-9,-17);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(4,-10);ctx.lineTo(9,-17);ctx.stroke();
+  ctx.shadowBlur=14;ctx.shadowColor="#f3d35c";
+  ctx.fillStyle="#c58d27";ctx.beginPath();ctx.ellipse(0,3,8,11,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle="#f3d35c";ctx.beginPath();ctx.arc(0,-7,6,0,Math.PI*2);ctx.fill();
+  ctx.shadowBlur=8;ctx.shadowColor="#72e5ff";ctx.fillStyle="#72e5ff";ctx.beginPath();ctx.arc(0,-8,2.4,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+}
+function drawMessage(now){
+  if(!s.message||now>s.messageUntil)return;
+  ctx.save();ctx.font="bold 17px system-ui";ctx.textAlign="center";
+  const w=Math.min(660,ctx.measureText(s.message).width+42);const x=W/2-w/2;
+  if(s.messageTop){
+    const y=35;
+    ctx.fillStyle="rgba(0,0,0,.62)";roundedRect(x,y,w,39,8);ctx.fill();
+    ctx.fillStyle="#ffe59a";ctx.fillText(s.message,W/2,y+25);
+  }else{
+    const y=H-45;
+    ctx.fillStyle="rgba(0,0,0,.68)";roundedRect(x,y-28,w,39,8);ctx.fill();
+    ctx.fillStyle="#f3d35c";ctx.fillText(s.message,W/2,y-3);
+  }
+  ctx.restore();
+}
+function drawPuzzle(now){
+  const p=s.puzzle;
+  ctx.save();ctx.fillStyle="rgba(0,0,0,.70)";ctx.fillRect(0,0,W,H);
+  const bx=160,by=95,bw=600,bh=430;
+  ctx.fillStyle="#0d1d24";roundedRect(bx,by,bw,bh,18);ctx.fill();
+  ctx.strokeStyle="#476b68";ctx.lineWidth=2;ctx.stroke();
+  ctx.textAlign="center";ctx.fillStyle="#eef7f0";
+  if(p.type==="routing"){
+    ctx.font="bold 28px system-ui";
+    ctx.fillText("SIGNAL-ROUTING",W/2,137);
+    ctx.font="16px system-ui";ctx.fillStyle="#b8d0c8";
+    ctx.fillText(`Durchgang ${p.round+1}`,W/2,165);
+    ctx.save();
+    ctx.textAlign="right";ctx.font="bold 15px system-ui";
+    ctx.fillStyle=(p.phase==="idle"&&p.roundSeconds<=3)?"#ff7676":"#f3d35c";
+    ctx.fillText(`ZEIT ${p.phase==="idle"?p.roundSeconds:"–"}`,730,165);
+    ctx.restore();
+    drawRouting(p,now);
+  }else if(p.type==="power"){
+    ctx.font="bold 28px system-ui";
+    ctx.fillText("FORSCHUNG – STROMVERTEILUNG",W/2,137);
+    ctx.font="16px system-ui";ctx.fillStyle="#b8d0c8";
+    ctx.fillText(`Runde ${p.round+1}`,W/2,165);
+    ctx.save();
+    ctx.textAlign="right";ctx.font="bold 15px system-ui";
+    ctx.fillStyle=(p.phase==="play"&&p.roundSeconds<=3)?"#ff7676":"#f3d35c";
+    ctx.fillText(`ZEIT ${p.phase==="play"?p.roundSeconds:powerRoundSeconds(p.round)}`,730,165);
+    ctx.restore();
+    drawPower(p);
+  }else{
+    ctx.font="bold 28px system-ui";
+    ctx.fillText("📹 ÜBERWACHUNG – ZUGANGSCODE",W/2,137);
+    ctx.font="16px system-ui";ctx.fillStyle="#b8d0c8";ctx.fillText(p.status,W/2,168);
+    drawSequence(p,now);
+  }
+  ctx.restore();
+}
+function connectors(type,rot){
+  let base;
+  if(type==="straight") base=[0,2];
+  else if(type==="corner") base=[0,1];
+  else if(type==="t") base=[0,1,3];
+  else if(type==="cross") base=[0,1,2,3];
+  else base=[0,2];
+  return [...new Set(base.map(v=>(v+rot)%4))];
+}
+function drawRouting(p,now){
+  const b=p.board;
+  const gap=64;
+  const box=gap-12;
+  const startX=W/2-(b.w-1)*gap/2;
+  const startY=216;
+  const pairColors=["#ff8fd7","#7edcff","#ffa75c"];
+
+  const flowSteps=p.flowTrace ? p.flowTrace.steps.slice(0,p.flowIndex) : [];
+  const activeModules=new Set();
+  const activeEntries=new Map();
+  const activeEdges=[];
+  const activePortalPairs=[];
+  let exitActive=false;
+  for(const step of flowSteps){
+    if(step.kind==="module"){
+      activeModules.add(step.idx);
+      if(!activeEntries.has(step.idx)) activeEntries.set(step.idx,new Set());
+      if(typeof step.entry==="number") activeEntries.get(step.idx).add(step.entry);
+    }
+    else if(step.kind==="edge") activeEdges.push(step);
+    else if(step.kind==="portal") activePortalPairs.push(step);
+    else if(step.kind==="exit") exitActive=true;
+  }
+  const flashing=p.phase==="resultFlash" && now<p.flashUntil;
+  const flashColor=p.flashKind==="success"?"#63f58a":"#ff3b3b";
+
+  function moduleCenter(i){
+    return {x:startX+(i%b.w)*gap,y:startY+Math.floor(i/b.w)*gap};
+  }
+  function coupleColor(i){
+    const pi=b.couples.findIndex(([a,c])=>a===i||c===i);
+    return pi>=0 ? pairColors[pi%pairColors.length] : null;
+  }
+  const portalColors=["#b98cff","#ff78d5","#5ee6ff"];
+  function portalColor(i){
+    const id=b.portalPairId?b.portalPairId[i]:-1;
+    return id>=0?portalColors[id%portalColors.length]:"#b98cff";
+  }
+
+  for(const step of activeEdges){
+    const a=moduleCenter(step.from), c=moduleCenter(step.to);
+    ctx.save();
+    ctx.strokeStyle="#f3d35c";ctx.lineWidth=8;ctx.lineCap="round";
+    ctx.shadowBlur=14;ctx.shadowColor="#f3d35c";
+    const sx=a.x+(c.x!==a.x?(c.x>a.x?box*.46:-box*.46):0);
+    const sy=a.y+(c.y!==a.y?(c.y>a.y?box*.46:-box*.46):0);
+    ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(c.x,c.y);ctx.stroke();
+    ctx.restore();
+  }
+
+  for(let i=0;i<b.types.length;i++){
+    const x=startX+(i%b.w)*gap,y=startY+Math.floor(i/b.w)*gap;
+    const selected=i===b.selected;
+    const isActive=activeModules.has(i);
+    const cColor=coupleColor(i);
+    ctx.save();
+    ctx.fillStyle="#142b32";roundedRect(x-box/2,y-box/2,box,box,10);ctx.fill();
+    ctx.strokeStyle=selected?"#f3d35c":"#39636a";ctx.lineWidth=selected?4:2;ctx.stroke();
+    if(selected){ctx.shadowBlur=14;ctx.shadowColor="#f3d35c";ctx.stroke();ctx.shadowBlur=0}
+
+    const type=b.types[i];
+    const con=moduleConnectors(b,i);
+    const normalColor=isActive?"#f3d35c":"#70e0c1";
+    ctx.strokeStyle=normalColor;
+    ctx.lineWidth=Math.max(7,box*.13);ctx.lineCap="round";
+    if(isActive){ctx.shadowBlur=14;ctx.shadowColor="#f3d35c";}
+
+    if(type==="switch"){
+      const baseCon=connectors(b.baseShapes[i],b.rots[i]);
+      for(const d of baseCon){
+        const dx=[0,1,0,-1][d],dy=[-1,0,1,0][d];
+        const inner=b.states[i]?0:box*.18;
+        ctx.beginPath();ctx.moveTo(x+dx*inner,y+dy*inner);ctx.lineTo(x+dx*box*.44,y+dy*box*.44);ctx.stroke();
+      }
+      ctx.shadowBlur=0;
+    }else if(type==="blocker"){
+      const common=b.blockerCommon[i];
+      const activeBranch=b.states[i]?b.blockerTarget[i]:b.blockerAlt[i];
+      const blockedBranch=b.states[i]?b.blockerAlt[i]:b.blockerTarget[i];
+      const dirs=[common,activeBranch,blockedBranch];
+      for(const d of dirs){
+        const dx=[0,1,0,-1][d],dy=[-1,0,1,0][d];
+        ctx.save();
+        ctx.strokeStyle=d===blockedBranch?"rgba(112,224,193,.30)":normalColor;
+        ctx.lineWidth=Math.max(7,box*.13);ctx.lineCap="round";
+        ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+dx*box*.44,y+dy*box*.44);ctx.stroke();
+        ctx.restore();
+      }
+      // Rote Sperre auf dem aktuell blockierten Zweig.
+      {
+        const d=blockedBranch,dx=[0,1,0,-1][d],dy=[-1,0,1,0][d];
+        const px=x+dx*box*.27,py=y+dy*box*.27;
+        ctx.save();ctx.translate(px,py);ctx.rotate(d*Math.PI/2);
+        ctx.fillStyle="#ff6969";ctx.shadowBlur=10;ctx.shadowColor="#ff6969";
+        roundedRect(-11,-4,22,8,3);ctx.fill();ctx.restore();
+      }
+    }else if(type==="portal"){
+      const d=moduleConnectors(b,i)[0];
+      const dx=[0,1,0,-1][d],dy=[-1,0,1,0][d];
+      ctx.save();
+      ctx.strokeStyle=normalColor;ctx.lineWidth=Math.max(7,box*.13);ctx.lineCap="round";
+      if(isActive){ctx.shadowBlur=14;ctx.shadowColor="#f3d35c";}
+      ctx.beginPath();ctx.moveTo(x+dx*box*.10,y+dy*box*.10);ctx.lineTo(x+dx*box*.44,y+dy*box*.44);ctx.stroke();
+      ctx.shadowBlur=0;
+      const pc=portalColor(i);
+      ctx.strokeStyle=pc;ctx.lineWidth=5;ctx.shadowBlur=14;ctx.shadowColor=pc;
+      ctx.beginPath();ctx.arc(x,y,box*.18,0,Math.PI*2);ctx.stroke();
+      ctx.lineWidth=2.2;ctx.beginPath();ctx.arc(x,y,box*.10,0,Math.PI*2);ctx.stroke();
+      ctx.restore();
+    }else if(type==="cross"){
+      // Zwei elektrisch getrennte Geradeaus-Leitungen: links↔rechts und oben↔unten.
+      const entries=activeEntries.get(i)||new Set();
+      const horizActive=entries.has(1)||entries.has(3);
+      const vertActive=entries.has(0)||entries.has(2);
+      ctx.save();ctx.lineCap="round";ctx.lineWidth=Math.max(7,box*.13);
+      ctx.strokeStyle=horizActive?"#f3d35c":"#70e0c1";
+      if(horizActive){ctx.shadowBlur=14;ctx.shadowColor="#f3d35c";}
+      ctx.beginPath();ctx.moveTo(x-box*.44,y);ctx.lineTo(x-5,y);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(x+5,y);ctx.lineTo(x+box*.44,y);ctx.stroke();
+      ctx.shadowBlur=0;
+      ctx.strokeStyle=vertActive?"#f3d35c":"#70e0c1";
+      if(vertActive){ctx.shadowBlur=14;ctx.shadowColor="#f3d35c";}
+      ctx.beginPath();ctx.moveTo(x,y-box*.44);ctx.lineTo(x,y-5);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(x,y+5);ctx.lineTo(x,y+box*.44);ctx.stroke();
+      ctx.shadowBlur=0;
+      ctx.fillStyle="#142b32";ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();
+      ctx.restore();
+    }else{
+      for(const d of con){
+        const dx=[0,1,0,-1][d],dy=[-1,0,1,0][d];
+        ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+dx*box*.44,y+dy*box*.44);ctx.stroke();
+      }
+      ctx.shadowBlur=0;
+    }
+
+    // Kennzeichnung über den Mittelpunkt: gekoppelte Module sind farbig gefüllt.
+    if(type!=="portal"){
+      if(cColor){
+        ctx.fillStyle=cColor;ctx.beginPath();ctx.arc(x,y,Math.max(5,box*.10),0,Math.PI*2);ctx.fill();
+      }else{
+        ctx.fillStyle="#a7ffde";ctx.beginPath();ctx.arc(x,y,Math.max(5,box*.10),0,Math.PI*2);ctx.fill();
+      }
+    }
+
+    if(type==="switch"){
+      const ring=b.states[i]?"#63f58a":"#ff4d5d";
+      ctx.save();ctx.strokeStyle=ring;ctx.lineWidth=5;ctx.shadowBlur=14;ctx.shadowColor=ring;
+      ctx.beginPath();ctx.arc(x,y,Math.max(14,box*.24),0,Math.PI*2);ctx.stroke();ctx.restore();
+    }
+
+    if(isActive){
+      ctx.fillStyle="#fff4bf";ctx.beginPath();ctx.arc(x,y,Math.max(3,box*.06),0,Math.PI*2);ctx.fill();
+    }
+    if(flashing){
+      ctx.strokeStyle=flashColor;ctx.lineWidth=5;ctx.shadowBlur=24;ctx.shadowColor=flashColor;
+      roundedRect(x-box/2+1,y-box/2+1,box-2,box-2,10);ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  const entry=moduleCenter(b.startIdx), exit=moduleCenter(b.endIdx);
+  ctx.save();ctx.font="bold 12px system-ui";ctx.textAlign="right";
+  ctx.fillStyle=(p.phase==="flow"||p.phase==="countdown")?"#f3d35c":"#6cc9ff";
+  ctx.fillText("In →",entry.x-gap*.55,entry.y+4);
+  ctx.textAlign="left";ctx.fillStyle=exitActive?"#f3d35c":"#6cc9ff";
+  ctx.fillText("← Out",exit.x+gap*.55,exit.y+4);
+  ctx.restore();
+
+  // Bedienung unterhalb der Module wie in der Legende, mit Tastenrahmen.
+  const controlY=486;
+  function drawKeyHint(x,key,label,keyW){
+    ctx.save();ctx.textBaseline="middle";ctx.textAlign="center";
+    ctx.font="bold 13px system-ui";
+    ctx.fillStyle="#1b3428";ctx.strokeStyle="#476b59";ctx.lineWidth=1.5;
+    roundedRect(x-keyW/2,controlY-14,keyW,28,5);ctx.fill();ctx.stroke();
+    ctx.fillStyle="#eef7f0";ctx.fillText(key,x,controlY+1);
+    ctx.textAlign="left";ctx.font="14px system-ui";ctx.fillStyle="#b8d0c8";
+    ctx.fillText(label,x+keyW/2+8,controlY+1);
+    ctx.restore();
+  }
+  drawKeyHint(320,"Leertaste","Manipulieren",76);
+  drawKeyHint(510,"Enter","Einschalten",52);
+
+  // Spiel-1-Wanze: gespiegelt, nochmals 20 % größer und 20 px weiter rechts.
+  if(bugMonitorImage.complete && bugMonitorImage.naturalWidth>0){
+    const dw=151,dh=151;
+    const right=160+600-12+20;
+    const dx=right-dw;
+    const dy=(95+430-105-8)+20;
+    ctx.save();
+    ctx.beginPath();roundedRect(161,96,598,428,17);ctx.clip();
+    ctx.globalAlpha=.95;
+    ctx.translate(dx+dw,dy);ctx.scale(-1,1);
+    ctx.drawImage(bugMonitorImage,0,0,dw,dh);
+    ctx.restore();
+  }
+
+  if(p.phase==="countdown"){
+    ctx.save();ctx.font="bold 54px system-ui";ctx.fillStyle="#f3d35c";
+    ctx.shadowBlur=18;ctx.shadowColor="#f3d35c";ctx.fillText(String(p.countdownValue),W/2,430);ctx.restore();
+  }
+}
+
+function drawSequence(p,now){
+  const colors=["#57c7ff","#ff6e76","#7ee38f","#f3d35c"];
+  const labels=["1","2","3","4"];
+  const panelX=160,panelY=95,panelW=600,panelH=430;
+  let lit=-1,litFake=false;
+  if(p.phase==="show" && p.showIndex%2===1){
+    const token=p.displaySeq[Math.floor(p.showIndex/2)];
+    if(token){lit=token.v;litFake=token.fake;}
+  }
+  if(p.phase==="verify" && p.verifyLit>=0) lit=p.verifyLit;
+  const errorFlash=p.phase==="error" && now<(p.errorFlashUntil||0);
+  for(let i=0;i<4;i++){
+    const x=305+i*105,y=300;
+    const active=lit===i;
+    ctx.save();
+    if(errorFlash){
+      ctx.shadowBlur=28;ctx.shadowColor="#ff3b3b";
+      ctx.fillStyle="#ff3b3b";ctx.beginPath();ctx.arc(x,y,37,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle="#ff7777";ctx.lineWidth=4;ctx.stroke();ctx.shadowBlur=0;
+      ctx.fillStyle="#180505";ctx.font="bold 24px system-ui";ctx.fillText(labels[i],x,y+8);
+    }else{
+      ctx.shadowBlur=active?28:0;ctx.shadowColor=colors[i];
+      ctx.fillStyle=(active&&!litFake)?colors[i]:"#1b2b31";ctx.beginPath();ctx.arc(x,y,37,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle=colors[i];ctx.lineWidth=active?5:3;ctx.stroke();ctx.shadowBlur=0;
+      ctx.fillStyle=(active&&!litFake)?"#071218":colors[i];ctx.font="bold 24px system-ui";
+      if(active&&litFake){ctx.shadowBlur=18;ctx.shadowColor=colors[i];}
+      ctx.fillText(labels[i],x,y+8);ctx.shadowBlur=0;
+    }
+    ctx.restore();
+  }
+
+  const maxW=215,maxH=215;
+  if(bugMonitorImage.complete && bugMonitorImage.naturalWidth>0){
+    const baseScale=Math.min(maxW/bugMonitorImage.naturalWidth,maxH/bugMonitorImage.naturalHeight);
+    const baseDw=bugMonitorImage.naturalWidth*baseScale;
+    const baseDh=bugMonitorImage.naturalHeight*baseScale;
+    const anchorRight=panelX-34+baseDw;
+    const anchorTop=panelY+panelH-baseDh+34+20;
+    const scale=baseScale*1.4;
+    const dw=bugMonitorImage.naturalWidth*scale;
+    const dh=bugMonitorImage.naturalHeight*scale;
+    const dx=anchorRight-dw+10;
+    const dy=anchorTop;
+    ctx.save();
+    ctx.beginPath();
+    roundedRect(panelX+1,panelY+1,panelW-2,panelH-2,18);
+    ctx.clip();
+    ctx.shadowBlur=24;
+    ctx.shadowColor="rgba(0,0,0,.45)";
+    ctx.drawImage(bugMonitorImage,dx,dy,dw,dh);
+    ctx.restore();
+  }else{
+    ctx.save();
+    ctx.beginPath();
+    roundedRect(panelX+1,panelY+1,panelW-2,panelH-2,18);
+    ctx.clip();
+    ctx.translate(panelX+38,panelY+panelH-38);
+    ctx.scale(1.45,1.45);
+    drawTinyBug();
+    ctx.restore();
+  }
+
+  if(p.phase==="countdown"){
+    ctx.save();
+    ctx.font="bold 54px system-ui";
+    ctx.fillStyle="#f3d35c";
+    ctx.shadowBlur=18;ctx.shadowColor="#f3d35c";
+    ctx.fillText(String(p.countdownValue),W/2,420);
+    ctx.restore();
+  }
+  if(p.phase==="input"||p.phase==="waitVerify"||p.phase==="verify"||p.phase==="error"||p.phase==="success"){
+    ctx.font=p.seq.length>=10?"bold 18px system-ui":"bold 22px system-ui";
+    ctx.fillStyle=p.phase==="success"?"#7be58e":p.phase==="error"?"#ffaaaa":"#eef7f0";
+    const shown=Array.from({length:p.seq.length},(_,i)=>i<p.input.length?String(p.input[i]+1):"_").join("  ");
+    ctx.fillText(shown,W/2,410);
+  }
+}
+
+function drawPower(p){
+  const now=s.paused?(s.pauseStarted||performance.now()):performance.now();
+  const colors=["#ff6e76","#57c7ff","#7ee38f"];
+  const labels=["ROT","BLAU","GRÜN"];
+  const panelX=160,panelY=95,panelW=600,panelH=430;
+
+  // Drei vertikale Leistungsbalken links.
+  const barBottom=456,barTop=215,barH=barBottom-barTop,barW=46;
+  const barInnerPad=5, barInnerH=barH-barInnerPad*2;
+  for(let i=0;i<3;i++){
+    const x=210+i*72;
+    ctx.save();
+    ctx.fillStyle="#101e24";roundedRect(x,barTop,barW,barH,9);ctx.fill();
+    ctx.strokeStyle="#45615f";ctx.lineWidth=2;ctx.stroke();
+    const shown=Math.min(12,p.values[i]);
+    const fillH=Math.min(barInnerH,barInnerH*(Math.min(shown,10)/10));
+    if(fillH>0){
+      ctx.fillStyle=colors[i];
+      ctx.globalAlpha=.82;
+      roundedRect(x+barInnerPad,barBottom-barInnerPad-fillH,barW-barInnerPad*2,fillH,5);ctx.fill();
+      ctx.globalAlpha=1;
+    }
+    for(let t=0;t<=10;t+=2){
+      const y=barBottom-barH*(t/10);
+      ctx.strokeStyle="rgba(220,240,235,.22)";ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(x+barW+2,y);ctx.lineTo(x+barW+7,y);ctx.stroke();
+    }
+    const overloadFlash=(p.barFlash&&p.barFlash[i]>now);
+    const successBlink=p.phase==="success" && p.successStart && now<p.successUntil && (Math.floor((now-p.successStart)/180)%2===0);
+    const flashColor=overloadFlash?"#ff3b3b":successBlink?"#63f58a":colors[i];
+    ctx.strokeStyle=flashColor;ctx.lineWidth=(overloadFlash||successBlink)?5:2;
+    if(overloadFlash||successBlink){ctx.shadowBlur=22;ctx.shadowColor=flashColor;}
+    roundedRect(x,barTop,barW,barH,9);ctx.stroke();ctx.shadowBlur=0;
+    if(successBlink){
+      ctx.fillStyle="rgba(99,245,138,.20)";
+      roundedRect(x+2,barTop+2,barW-4,barH-4,7);ctx.fill();
+    }
+    ctx.fillStyle=overloadFlash?"#ff7777":successBlink?"#dfffe8":"#eef7f0";ctx.font="bold 23px system-ui";ctx.textAlign="center";
+    ctx.fillText(String(p.values[i]),x+barW/2,barTop-15);
+    ctx.font="bold 11px system-ui";ctx.fillStyle=colors[i];ctx.fillText(labels[i],x+barW/2,barBottom+19);
+    ctx.restore();
+  }
+
+  // Fallende Elemente rechts. Der große Hintergrundrahmen richtet sich nun an den Höhen der Leistungsbalken aus.
+  const laneX=470,laneW=245,frameY=328,frameH=106;
+  const laneY=barTop, laneH=barH;
+  ctx.save();
+  ctx.fillStyle="rgba(10,24,29,.55)";roundedRect(laneX,laneY,laneW,laneH,14);ctx.fill();
+  ctx.strokeStyle="rgba(100,150,145,.25)";ctx.lineWidth=1.5;ctx.stroke();
+  ctx.strokeStyle="#f3d35c";ctx.lineWidth=3;ctx.shadowBlur=12;ctx.shadowColor="rgba(243,211,92,.45)";
+  roundedRect(laneX-8,frameY,laneW+16,frameH,14);ctx.stroke();ctx.shadowBlur=0;
+  ctx.font="bold 11px system-ui";ctx.fillStyle="#f3d35c";ctx.textAlign="center";ctx.fillText("AUSWAHL",laneX+laneW/2,frameY-10);
+
+  const active=activePowerItem(p,now);
+  ctx.save();
+  ctx.beginPath();ctx.rect(laneX,laneY,laneW,laneH);ctx.clip();
+  for(const it of p.items){
+    if(p.phase!=="play"||it.selected||it.passed||now<p.roundStart+it.spawnDelay)continue;
+    const y=powerItemY(p,it,now);
+    if(y<laneY-35||y>laneY+laneH+35)continue;
+    const isActive=it===active;
+    const w=196,h=54,x=laneX+(laneW-w)/2;
+    ctx.save();
+    if(it.type==="joker"){
+      ctx.fillStyle=isActive?"#3a3020":"#262316";roundedRect(x,y-h/2,w,h,11);ctx.fill();
+      ctx.strokeStyle="#f3d35c";ctx.lineWidth=isActive?4:2.5;
+      ctx.shadowBlur=isActive?18:8;ctx.shadowColor="#f3d35c";ctx.stroke();ctx.shadowBlur=0;
+      ctx.fillStyle="#f3d35c";ctx.font="bold 18px system-ui";ctx.textAlign="center";
+      ctx.fillText("★  JOKER  ★",x+w/2,y-5);
+      const miniY=y+15;
+      for(let i=0;i<3;i++){
+        const cx=x+w/2+(i-1)*40;
+        ctx.fillStyle=colors[i];ctx.globalAlpha=.92;
+        ctx.beginPath();ctx.arc(cx,miniY,11,0,Math.PI*2);ctx.fill();
+        ctx.globalAlpha=1;ctx.fillStyle="#071218";ctx.font="bold 11px system-ui";
+        ctx.fillText("10",cx,miniY+4);
+      }
+    }else{
+      ctx.fillStyle=isActive?"#1d3331":"#14272c";roundedRect(x,y-h/2,w,h,11);ctx.fill();
+      ctx.strokeStyle=isActive?"#f3d35c":"#45615f";ctx.lineWidth=isActive?3:1.5;ctx.stroke();
+      if(isActive){ctx.shadowBlur=12;ctx.shadowColor="#f3d35c";ctx.stroke();ctx.shadowBlur=0;}
+      const vals=it.vals.map((v,i)=>({v,i})).filter(o=>o.v!==0);
+      const chipW=54,gap=7,total=vals.length*chipW+(vals.length-1)*gap;
+      let cx=x+w/2-total/2;
+      for(const {v,i} of vals){
+        ctx.fillStyle="rgba(7,18,24,.75)";roundedRect(cx,y-17,chipW,34,7);ctx.fill();
+        ctx.strokeStyle=colors[i];ctx.lineWidth=2;ctx.stroke();
+        ctx.fillStyle=colors[i];ctx.font="bold 17px system-ui";ctx.textAlign="center";
+        ctx.fillText(`${v>0?"+":""}${v}`,cx+chipW/2,y+6);
+        cx+=chipW+gap;
+      }
+    }
+    ctx.restore();
+  }
+  ctx.restore(); // lane clip
+  ctx.restore();
+
+  ctx.save();ctx.textAlign="center";
+  function keyBox(x,y,label){
+    ctx.save();
+    ctx.font="bold 12px system-ui";
+    const w=Math.max(25,ctx.measureText(label).width+12),h=24;
+    ctx.fillStyle="#1b3428";roundedRect(x-w/2,y-h/2,w,h,5);ctx.fill();
+    ctx.strokeStyle="#476b59";ctx.lineWidth=1.5;ctx.stroke();
+    ctx.fillStyle="#eef7f0";ctx.fillText(label,x,y+4);
+    ctx.restore();
+  }
+  const hintY=489;
+  const hintXs=[495,560,625,690];
+  const hintKeys=["↑","←","↓","→"];
+  const jokerActive=active&&active.type==="joker";
+  const hintLabels=jokerActive?["–","Rot →10","Blau →10","Grün →10"]:["Alle","Links","Mitte","Rechts"];
+  for(let i=0;i<4;i++){
+    keyBox(hintXs[i],hintY,hintKeys[i]);
+    ctx.font="11px system-ui";ctx.fillStyle=jokerActive?"#f3d35c":"#b8d0c8";
+    ctx.fillText(hintLabels[i],hintXs[i],516);
+  }
+  if(p.phase==="countdown"){
+    ctx.save();
+    ctx.font="bold 54px system-ui";
+    ctx.fillStyle="#f3d35c";
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+    ctx.shadowBlur=18;ctx.shadowColor="#f3d35c";
+    ctx.fillText(String(p.countdownValue),laneX+laneW/2,frameY+frameH/2+2);
+    ctx.restore();
+  }
+  if(p.phase==="restartDelay"){
+    ctx.save();
+    ctx.fillStyle="rgba(0,0,0,.58)";roundedRect(420,300,340,58,12);ctx.fill();
+    ctx.strokeStyle="#ff7777";ctx.lineWidth=2;ctx.stroke();
+    ctx.fillStyle="#ffaaaa";ctx.font="bold 20px system-ui";ctx.fillText(p.status,W/2+105,335);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+function drawStartScreen(){
+  if(startScreenImage.complete && startScreenImage.naturalWidth>0){
+    ctx.drawImage(startScreenImage,0,0,W,H);
+  }else{
+    drawCircuitBackdrop();
+  }
+
+  ctx.fillStyle="rgba(0,0,0,.58)";
+  ctx.fillRect(W/2-190,H-94,380,52);
+  ctx.textAlign="center";
+  ctx.font="bold 24px system-ui";
+  ctx.fillStyle="#f3d35c";
+  ctx.fillText("Leertaste zum Start",W/2,H-60);
+  ctx.textAlign="left";
+}
+function drawEndScreen(){
+  drawCircuitBackdrop();
+
+  const boxH=s.won?150:138;
+  const boxY=H-boxH-28;
+
+  ctx.fillStyle="rgba(0,0,0,.58)";
+  ctx.fillRect(W/2-330,boxY,660,boxH);
+
+  ctx.textAlign="center";
+  ctx.fillStyle="#fff";
+  ctx.font="bold 34px system-ui";
+  ctx.fillText(s.won?"* * * JAAA, JUHUUUU * * *":"ENTDECKT!",W/2,boxY+38);
+
+  ctx.font="20px system-ui";
+  ctx.fillStyle=s.won?"#f3d35c":"#ffaaaa";
+  ctx.fillText(
+    s.won ? "Spionos Wanze hat alle Daten erfolgreich übermittelt." : "Spionos Wanze ist aufgeflogen.",
+    W/2,boxY+74
+  );
+
+  if(s.won){
+    ctx.font="bold 22px system-ui";
+    ctx.fillText("TEST-INFORMATION: WANZE 31",W/2,boxY+112);
+  }
+
+  if(s.lost){
+    ctx.font="16px system-ui";
+    ctx.fillStyle="#ddd";
+    ctx.fillText("Leertaste für einen neuen Versuch",W/2,boxY+108);
+  }
+  ctx.textAlign="left";
+}
+function draw(){
+  const now=performance.now();
+  if(!s.started){drawStartScreen();return}
+  if(s.won||s.lost){drawEndScreen();return}
+  drawMaze(now);
+}
+
+function startOrRestart(){
+  if(s.won||s.lost){reset(true);return}
+  if(!s.started){s.started=true;sfx("start");showMessage("Auf der Mauer, auf der Lauer … los geht's kleine 🪲 Wanze",4400,true)}
+}
+
+window.addEventListener("keydown",e=>{
+  const k=e.key;
+  const lower=k.toLowerCase();
+  if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(k)) e.preventDefault();
+
+  if(lower==="m"){soundMuted=!soundMuted;if(!soundMuted)sfx("terminal");return}
+  if(lower==="p"){togglePause();return}
+  if(s.paused){
+    // In Spiel 1 bleibt die Schaltung während der Pause bedienbar;
+    // nur Zeit und Spielablauf stehen still. Enter startet in Pause nicht.
+    if(s.puzzle&&s.puzzle.type==="routing"&&s.puzzle.phase==="idle"){
+      if(k===" "){manipulateRouting();return}
+      if(lower==="w"||k==="ArrowUp"){moveRoutingSelection(0,-1);return}
+      if(lower==="s"||k==="ArrowDown"){moveRoutingSelection(0,1);return}
+      if(lower==="a"||k==="ArrowLeft"){moveRoutingSelection(-1,0);return}
+      if(lower==="d"||k==="ArrowRight"){moveRoutingSelection(1,0);return}
+    }
+    return;
+  }
+  if(lower==="o"){s.freezeScanners=!s.freezeScanners;showMessage(s.freezeScanners?"TEST: Scanner eingefroren":"TEST: Scanner aktiv");return}
+  if(lower==="l"){
+    const t=terminals.find(t=>!t.solved);if(t){t.solved=true;s.checkpoint={...t.pos};updateHud();showMessage("TEST: Datenknoten freigeschaltet")};return;
+  }
+
+  if(s.puzzle){
+    if(k==="Escape"){
+      s.puzzle=null;sfx("terminal");showMessage("Rätsel verlassen.",900);return;
+    }
+    if(s.puzzle.type==="routing"){
+      if(k===" "){manipulateRouting();return}
+      if(lower==="w"||k==="ArrowUp"){moveRoutingSelection(0,-1);return}
+      if(lower==="s"||k==="ArrowDown"){moveRoutingSelection(0,1);return}
+      if(lower==="a"||k==="ArrowLeft"){moveRoutingSelection(-1,0);return}
+      if(lower==="d"||k==="ArrowRight"){moveRoutingSelection(1,0);return}
+      if(k==="Enter"){puzzleEnter();return}
+      return;
+    }
+    if(s.puzzle.type==="power"){
+      if(lower==="w"||k==="ArrowUp"){selectPowerPart("up");return}
+      if(lower==="s"||k==="ArrowDown"){selectPowerPart("down");return}
+      if(lower==="a"||k==="ArrowLeft"){selectPowerPart("left");return}
+      if(lower==="d"||k==="ArrowRight"){selectPowerPart("right");return}
+      return;
+    }
+    if(["1","2","3","4"].includes(k)){puzzleKey(Number(k));return}
+    if(k==="Enter"){puzzleEnter();return}
+    return;
+  }
+
+  if(k===" "){startOrRestart();return}
+
+  // TEST: Im Labyrinth springen 1/2/3 direkt zu Spiel 1/2/3.
+  if(s.started&&!s.won&&!s.lost&&["1","2","3"].includes(k)){
+    const t=terminals[Number(k)-1];
+    if(t){s.player={...t.pos,dir:s.player.dir||"up"};openPuzzle(t)}
+    return;
+  }
+  if(lower==="w"||k==="ArrowUp")tryMove(0,-1);
+  else if(lower==="s"||k==="ArrowDown")tryMove(0,1);
+  else if(lower==="a"||k==="ArrowLeft")tryMove(-1,0);
+  else if(lower==="d"||k==="ArrowRight")tryMove(1,0);
+});
+restartBtn.addEventListener("click",()=>reset(false));
+
+reset(false);
+function loop(now){update(now);draw();requestAnimationFrame(loop)}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
