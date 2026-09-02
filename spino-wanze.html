@@ -65,6 +65,7 @@
     display:flex;
     align-items:center;
     gap:7px;
+    height:34px;
     padding:6px 10px;
     border:1px solid #476b59;
     border-radius:9px;
@@ -74,6 +75,21 @@
   }
   .item.done{border-color:#6f9b72;background:#173622}
   .item .state{font-size:12px;opacity:.72}
+  .puzzle-slot{
+    width:38px;
+    height:34px;
+    padding:0;
+    justify-content:center;
+    font-size:18px;
+    color:var(--slot-color,#eef7f0);
+    border-color:#476b59;
+    background:#102018;
+  }
+  .puzzle-slot.solved{
+    border-color:var(--slot-color,#6f9b72);
+    background:#173622;
+    box-shadow:0 0 10px color-mix(in srgb,var(--slot-color,#6f9b72) 45%,transparent);
+  }
   @keyframes alarmFlash{
     0%,100%{background:#14291e;border-color:#476b59;box-shadow:none}
     50%{background:#7b1119;border-color:#ff4d5d;box-shadow:0 0 18px rgba(255,77,93,.95);color:#fff}
@@ -126,6 +142,9 @@
   <div class="bar">
     <div class="items">
       <span class="item" id="alarmItem">🚨 ALARM <span class="state">0/9</span></span>
+      <span class="item puzzle-slot" id="slot-archiv" style="--slot-color:#6cc9ff" aria-label="Archiv"></span>
+      <span class="item puzzle-slot" id="slot-cam" style="--slot-color:#d68cff" aria-label="Überwachung"></span>
+      <span class="item puzzle-slot" id="slot-lab" style="--slot-color:#7be58e" aria-label="Forschung"></span>
     </div>
     <button id="restart">Neu starten</button>
   </div>
@@ -148,15 +167,27 @@ ctx.imageSmoothingEnabled=true;
 
 const restartBtn=document.getElementById("restart");
 const alarmItem=document.getElementById("alarmItem");
+const puzzleSlots={
+  archiv:document.getElementById("slot-archiv"),
+  cam:document.getElementById("slot-cam"),
+  lab:document.getElementById("slot-lab")
+};
 
 const startScreenImage=new Image();
 startScreenImage.src="spino-wanze-assets/spino_start_screen.png";
+const winScreenImage=new Image();
+winScreenImage.src="spino-wanze-assets/spino_win_screen.png";
+const failScreenImage=new Image();
+failScreenImage.src="spino-wanze-assets/spino_fail_screen.png";
 
 const bugTopDownImage=new Image();
 bugTopDownImage.src="spino-wanze-assets/sprite_wanze_topdown.png";
 
 const bugMonitorImage=new Image();
 bugMonitorImage.src="spino-wanze-assets/sprite_wanze.png";
+
+const virusImage=new Image();
+virusImage.src="spino-wanze-assets/sprite_virus.png";
 
 const W=canvas.width,H=canvas.height;
 const COLS=29, ROWS=17, CELL=30;
@@ -278,65 +309,173 @@ const terminals=[
   {id:"lab",label:"FORSCHUNG",icon:"🔬",pos:spots[2],color:"#7be58e",solved:false}
 ];
 const exitPos=spots[3];
+// Manuelle Karten-Anpassung laut Test-Screenshot:
+// zusaetzliches Wandfeld relativ zum Upload (1 links, 1 unten).
+maze[4][18]=1;
 
+function mazeDistance(a,b){
+  if(samePos(a,b))return 0;
+  const q=[a],seen=new Set([posKey(a)]),dist=new Map([[posKey(a),0]]);
+  for(let i=0;i<q.length;i++){
+    const p=q[i],d=dist.get(posKey(p));
+    for(const n of neighbors(p)){
+      const k=posKey(n);
+      if(seen.has(k))continue;
+      if(samePos(n,b))return d+1;
+      seen.add(k);dist.set(k,d+1);q.push(n);
+    }
+  }
+  return Infinity;
+}
+function scannerCorridorOrientation(p){
+  const ns=neighbors(p);
+  if(ns.length!==2)return null;
+  if(ns[0].x===ns[1].x)return "vertical";
+  if(ns[0].y===ns[1].y)return "horizontal";
+  return null; // Eckfeld oder Verzweigung
+}
 function pickScannerCells(){
-  const excluded=[start,exitPos,...terminals.map(t=>t.pos)];
-  const cand=reach.list.filter(p=>{
-    const d=reach.dist.get(p.x+","+p.y);
-    return d>8 && neighbors(p).length===2 && excluded.every(e=>Math.abs(e.x-p.x)+Math.abs(e.y-p.y)>4);
+  const fixedSpecial=[start,exitPos,...terminals.map(t=>t.pos)];
+  let remaining=reach.list.filter(p=>{
+    const d=reach.dist.get(posKey(p));
+    const orientation=scannerCorridorOrientation(p);
+    return d>8 && orientation && fixedSpecial.every(e=>mazeDistance(p,e)>=3);
   });
   const result=[];
-  for(let i=0;i<cand.length;i+=Math.max(1,Math.floor(cand.length/9))){
-    const p=cand[i];
-    if(result.every(r=>Math.abs(r.x-p.x)+Math.abs(r.y-p.y)>5)) result.push(p);
-    if(result.length===5) break;
+  while(result.length<8 && remaining.length){
+    remaining=remaining.filter(p=>result.every(r=>mazeDistance(p,r)>=3));
+    if(!remaining.length)break;
+    remaining.sort((a,b)=>{
+      const refsA=[...fixedSpecial,...result];
+      const minA=Math.min(...refsA.map(r=>mazeDistance(a,r)));
+      const minB=Math.min(...refsA.map(r=>mazeDistance(b,r)));
+      if(minB!==minA)return minB-minA;
+      return (reach.dist.get(posKey(b))||0)-(reach.dist.get(posKey(a))||0);
+    });
+    result.push(remaining.shift());
   }
-  return result.map((p,i)=>({...p,phase:i*.61}));
+  return result.map((p,i)=>({...p,orientation:scannerCorridorOrientation(p),phase:i*.43}));
 }
-const scanners=pickScannerCells();
+let scanners=pickScannerCells();
+// Ein markierter Scanner wird vom oberen Bereich nach unten links versetzt.
+const scannerMoveFrom={x:10,y:5};
+const scannerMoveTo={x:6,y:15};
+let scannerMoveIndex=scanners.findIndex(sc=>sc.x===scannerMoveFrom.x&&sc.y===scannerMoveFrom.y);
+if(scannerMoveIndex<0&&scanners.length){
+  let bestDist=Infinity;
+  scanners.forEach((sc,i)=>{
+    const d=Math.abs(sc.x-scannerMoveFrom.x)+Math.abs(sc.y-scannerMoveFrom.y);
+    if(d<bestDist){bestDist=d;scannerMoveIndex=i;}
+  });
+}
+if(scannerMoveIndex>=0){
+  const phase=scanners[scannerMoveIndex].phase;
+  scanners[scannerMoveIndex]={...scannerMoveTo,orientation:scannerCorridorOrientation(scannerMoveTo),phase};
+}
 function scannerActive(sc,now){return ((now/1000+sc.phase)%3.2)<1.45}
 
 
-// --- sichere Felder & digitales Virus -----------------------------------
+// --- sichere Felder, Schild & digitales Virus --------------------------
 function posKey(p){return p.x+","+p.y}
+function samePos(a,b){return a.x===b.x&&a.y===b.y}
+
+// Eine geschützte Zelle darf keinen Durchgang des Virus-Netzes abschneiden.
+// Deshalb wird nach jeder Kandidatenwahl geprüft, ob alle übrigen begehbaren
+// Zellen für das Virus weiterhin in genau einer zusammenhängenden Komponente liegen.
+function virusGraphConnectedWithBlocked(blocked){
+  const blockedKeys=new Set(blocked.map(posKey));
+  const open=reach.list.filter(p=>!blockedKeys.has(posKey(p)));
+  if(open.length<2)return true;
+  const q=[open[0]],seen=new Set([posKey(open[0])]);
+  for(let qi=0;qi<q.length;qi++){
+    const p=q[qi];
+    for(const n of neighbors(p)){
+      const k=posKey(n);
+      if(blockedKeys.has(k)||seen.has(k))continue;
+      seen.add(k);q.push(n);
+    }
+  }
+  return seen.size===open.length;
+}
 function pickSafeCells(){
-  const excluded=[exitPos,...terminals.map(t=>t.pos),...scanners];
+  const staticProtected=[{...start},{...exitPos},...terminals.map(t=>({...t.pos}))];
+  const excluded=[...staticProtected,...scanners];
+  // Tote Enden sind bevorzugt, weil sie einen Gang konstruktiv nicht blockieren.
   const candidates=reach.list
     .filter(p=>reach.dist.get(posKey(p))>5)
-    .filter(p=>neighbors(p).length>=2)
-    .filter(p=>excluded.every(e=>Math.abs(e.x-p.x)+Math.abs(e.y-p.y)>3));
+    .filter(p=>excluded.every(e=>!samePos(e,p)))
+    .filter(p=>scanners.every(sc=>mazeDistance(p,sc)>=3))
+    .sort((a,b)=>{
+      const da=neighbors(a).length,db=neighbors(b).length;
+      if(da!==db)return da-db;
+      return reach.dist.get(posKey(b))-reach.dist.get(posKey(a));
+    });
   const chosen=[{...start}];
   for(const p of candidates){
-    if(chosen.every(c=>Math.abs(c.x-p.x)+Math.abs(c.y-p.y)>7)) chosen.push({...p});
-    if(chosen.length===5) break;
+    if(chosen.every(c=>Math.abs(c.x-p.x)+Math.abs(c.y-p.y)>5)){
+      const blocked=[...terminals.map(t=>t.pos),exitPos,...chosen,p];
+      if(virusGraphConnectedWithBlocked(blocked)) chosen.push({...p});
+    }
+    if(chosen.length===5)break;
   }
   return chosen;
 }
-const safeCells=pickSafeCells();
-function isSafeCell(x,y){return safeCells.some(p=>p.x===x&&p.y===y)}
+// Feste SAFE-Positionen aus V33. Diese Positionen dürfen nur auf ausdrückliche Anweisung geändert werden.
+const safeCells=[
+  {x:1,y:1},
+  {x:21,y:13},
+  {x:1,y:15},
+  {x:17,y:7},
+  {x:13,y:9}
+];
+function isMarkedSafeCell(x,y){return safeCells.some(p=>p.x===x&&p.y===y)}
+function isVirusSafeCell(x,y){
+  return isMarkedSafeCell(x,y)||x===exitPos.x&&y===exitPos.y||terminals.some(t=>t.pos.x===x&&t.pos.y===y);
+}
 
-function pickVirusStart(){
+function pickVirusStarts(){
   const forbidden=[start,exitPos,...terminals.map(t=>t.pos),...safeCells];
   const candidates=reach.list
-    .filter(p=>!forbidden.some(e=>e.x===p.x&&e.y===p.y))
+    .filter(p=>!forbidden.some(e=>samePos(e,p)))
     .sort((a,b)=>reach.dist.get(posKey(b))-reach.dist.get(posKey(a)));
-  return candidates[0] ? {...candidates[0]} : {x:COLS-2,y:ROWS-2};
+  const first=candidates[0]?{...candidates[0]}:{x:COLS-2,y:ROWS-2};
+  const remaining=candidates.filter(p=>!samePos(p,first));
+  remaining.sort((a,b)=>{
+    const da=Math.abs(a.x-first.x)+Math.abs(a.y-first.y);
+    const db=Math.abs(b.x-first.x)+Math.abs(b.y-first.y);
+    if(db!==da)return db-da;
+    return (reach.dist.get(posKey(b))||0)-(reach.dist.get(posKey(a))||0);
+  });
+  const second=remaining[0]?{...remaining[0]}:{...first};
+  return [first,second];
 }
-const virusStart=pickVirusStart();
+const virusStarts=pickVirusStarts();
+
+function pickShieldCell(){
+  const forbidden=[start,exitPos,...virusStarts,...terminals.map(t=>t.pos),...safeCells,...scanners];
+  const maxDist=Math.max(...reach.list.map(p=>reach.dist.get(posKey(p))||0));
+  const targetDist=maxDist*.48;
+  const candidates=reach.list
+    .filter(p=>!forbidden.some(e=>samePos(e,p)))
+    .filter(p=>scanners.every(sc=>mazeDistance(p,sc)>=3))
+    .filter(p=>neighbors(p).length>=2)
+    .sort((a,b)=>Math.abs((reach.dist.get(posKey(a))||0)-targetDist)-Math.abs((reach.dist.get(posKey(b))||0)-targetDist));
+  return candidates[0]?{...candidates[0]}:{...start};
+}
+const shieldStart={x:21,y:9}; // zuvor 5 Felder nach unten und 1 Feld nach rechts versetzt
 
 function virusNeighbors(p){
   return [[1,0],[-1,0],[0,1],[0,-1]]
     .map(([dx,dy])=>({x:p.x+dx,y:p.y+dy}))
-    .filter(q=>q.x>=0&&q.y>=0&&q.x<COLS&&q.y<ROWS&&maze[q.y][q.x]===0&&!isSafeCell(q.x,q.y));
+    .filter(q=>q.x>=0&&q.y>=0&&q.x<COLS&&q.y<ROWS&&maze[q.y][q.x]===0&&!isVirusSafeCell(q.x,q.y));
 }
-function virusNextStep(from,target){
-  const goals=[];
-  if(isSafeCell(target.x,target.y)){
-    for(const n of neighbors(target)) if(!isSafeCell(n.x,n.y)) goals.push(n);
-  }else goals.push(target);
-  if(!goals.length) return null;
-  const goalKeys=new Set(goals.map(posKey));
+function virusNextStep(from,target,index){
+  if(isVirusSafeCell(target.x,target.y)) return null;
+  const goalKeys=new Set([posKey(target)]);
   const startKey=posKey(from);
+  const occupied=new Set(s.viruses
+    .filter((other,i)=>i!==index&&other.active)
+    .map(posKey));
   const q=[from], seen=new Set([startKey]), parent=new Map();
   let found=null;
   for(let i=0;i<q.length;i++){
@@ -344,7 +483,7 @@ function virusNextStep(from,target){
     if(goalKeys.has(posKey(p))){found=p;break}
     for(const n of virusNeighbors(p)){
       const k=posKey(n);
-      if(seen.has(k)) continue;
+      if(seen.has(k)||occupied.has(k)) continue;
       seen.add(k); parent.set(k,p); q.push(n);
     }
   }
@@ -353,23 +492,58 @@ function virusNextStep(from,target){
   while(prev && posKey(prev)!==startKey){cur=prev;prev=parent.get(posKey(cur))}
   return posKey(cur)===startKey ? null : cur;
 }
-function handleVirusHit(now){
+function randomVirusStep(v,index){
+  let options=virusNeighbors(v);
+  const occupied=new Set(s.viruses
+    .filter((other,i)=>i!==index&&other.active)
+    .map(posKey));
+  const free=options.filter(p=>!occupied.has(posKey(p)));
+  if(free.length) options=free;
+  if(options.length>1 && Number.isFinite(v.prevX) && Number.isFinite(v.prevY)){
+    const forward=options.filter(p=>!(p.x===v.prevX&&p.y===v.prevY));
+    if(forward.length) options=forward;
+  }
+  if(!options.length)return null;
+  return options[Math.floor(Math.random()*options.length)];
+}
+function resetViruses(now){
+  s.viruses.forEach((v,i)=>{
+    if(!v.active)return;
+    const startPos=virusStarts[i]||virusStarts[0];
+    Object.assign(v,startPos,{nextMove:now+900+i*180,prevX:null,prevY:null});
+  });
+}
+function handleVirusHit(now,index){
+  const v=s.viruses[index];
+  if(!v||!v.active)return;
+  if(s.hasShield){
+    s.hasShield=false;
+    v.active=false;
+    sfx("ok");
+    return;
+  }
   increaseAlarm();
   sfx("bad");
   if(s.alarms>=9){s.lost=true;return}
   const dir=s.player.dir||"up";
   s.player={...s.safeCheckpoint,dir};
-  s.virus={...virusStart};
-  s.virusNextMove=now+900;
+  resetViruses(now);
   showMessage(`Viruskontakt! Alarm ${s.alarms}/9 – zurück zum letzten sicheren Feld.`,2400);
 }
 function updateVirus(now){
-  if(!s.started||s.won||s.lost||s.paused||s.puzzle)return;
-  if(now<s.virusNextMove)return;
-  s.virusNextMove=now+520;
-  const next=virusNextStep(s.virus,s.player);
-  if(next) s.virus={...next};
-  if(s.virus.x===s.player.x&&s.virus.y===s.player.y&&!isSafeCell(s.player.x,s.player.y)) handleVirusHit(now);
+  if(!s.started||s.won||s.lost||s.paused||s.puzzle||s.virusesHidden)return;
+  const playerSafe=isVirusSafeCell(s.player.x,s.player.y);
+  for(let i=0;i<s.viruses.length;i++){
+    const v=s.viruses[i];
+    if(!v.active||now<v.nextMove)continue;
+    v.nextMove=now+520;
+    const next=playerSafe?randomVirusStep(v,i):virusNextStep(v,s.player,i);
+    if(next){v.prevX=v.x;v.prevY=v.y;v.x=next.x;v.y=next.y}
+    if(v.x===s.player.x&&v.y===s.player.y&&!playerSafe){
+      handleVirusHit(now,i);
+      break;
+    }
+  }
 }
 
 let s;
@@ -378,7 +552,9 @@ function reset(autoStart=false){
   s={
     started:autoStart, won:false,lost:false,paused:false,pauseStarted:0,
     player:{...start,dir:"up"}, checkpoint:{...start}, safeCheckpoint:{...start}, alarms:0,
-    virus:{...virusStart}, virusNextMove:performance.now()+1200,
+    viruses:virusStarts.map((p,i)=>({...p,active:true,nextMove:performance.now()+1200+i*180,prevX:null,prevY:null})),
+    virusesHidden:false,
+    shieldPos:{...shieldStart}, hasShield:false,
     message:autoStart?"Auf der Mauer, auf der Lauer … los geht's kleine 🪲 Wanze":"",
     messageUntil:autoStart?performance.now()+4400:0,
     messageTop:autoStart,
@@ -391,6 +567,13 @@ function reset(autoStart=false){
 function updateHud(){
   alarmItem.querySelector(".state").textContent=s?`${s.alarms}/9`:"0/9";
   alarmItem.classList.toggle("done",s&&s.alarms===0);
+  terminals.forEach(t=>{
+    const slot=puzzleSlots[t.id];
+    if(!slot)return;
+    const solved=!!(s&&t.solved);
+    slot.textContent=solved?t.icon:"";
+    slot.classList.toggle("solved",solved);
+  });
 }
 function triggerAlarmFlash(){
   alarmItem.classList.remove("alarm-flash");
@@ -419,7 +602,13 @@ function tryMove(dx,dy){
   s.player={x:nx,y:ny,dir:s.player.dir}; sfx("step");
   const now=performance.now();
 
-  if(isSafeCell(nx,ny)) s.safeCheckpoint={x:nx,y:ny};
+  if(isVirusSafeCell(nx,ny)) s.safeCheckpoint={x:nx,y:ny};
+
+  if(s.shieldPos&&s.shieldPos.x===nx&&s.shieldPos.y===ny){
+    s.shieldPos=null;
+    s.hasShield=true;
+    sfx("ok");
+  }
 
   const sc=scannerAt(nx,ny);
   if(sc && scannerActive(sc,now) && !s.freezeScanners){
@@ -431,9 +620,12 @@ function tryMove(dx,dy){
     return;
   }
 
-  if(s.virus.x===nx&&s.virus.y===ny&&!isSafeCell(nx,ny)){
-    handleVirusHit(now);
-    return;
+  if(!s.virusesHidden&&!isVirusSafeCell(nx,ny)){
+    const hitIndex=s.viruses.findIndex(v=>v.active&&v.x===nx&&v.y===ny);
+    if(hitIndex>=0){
+      handleVirusHit(now,hitIndex);
+      return;
+    }
   }
 
   const t=terminalAt(nx,ny);
@@ -1213,6 +1405,7 @@ function solvePuzzle(){
   const p=s.puzzle;if(!p)return;
   p.terminal.solved=true;
   s.checkpoint={...p.terminal.pos};
+  s.safeCheckpoint={...p.terminal.pos};
   s.puzzle=null;
   sfx("miniwin");
   updateHud();
@@ -1257,7 +1450,7 @@ function togglePause(){
   const delta=Math.max(0,now-(s.pauseStarted||now));
   s.paused=false;
   s.pauseStarted=0;
-  shiftTimestamp(s,"virusNextMove",delta);
+  if(s.viruses) s.viruses.forEach(v=>shiftTimestamp(v,"nextMove",delta));
   shiftTimestamp(s,"messageUntil",delta);
   const p=s.puzzle;
   if(p){
@@ -1477,29 +1670,42 @@ function drawMaze(now){
     }
   }
 
-  // sichere Felder – das Virus kann diese Zellen nicht betreten
-  safeCells.forEach((p,i)=>{
+  // Sichere Felder – bewusst ohne Text. Sie liegen so, dass das Virus-Netz
+  // durch ihre Sperrwirkung nicht in getrennte Korridore zerfällt.
+  safeCells.forEach(p=>{
     const c=cellCenter(p.x,p.y);
     ctx.save();
     ctx.shadowBlur=12;ctx.shadowColor="#56e0c2";
     ctx.fillStyle="rgba(45,130,110,.34)";
     roundedRect(c.x-11,c.y-11,22,22,6);ctx.fill();
     ctx.strokeStyle="#56e0c2";ctx.lineWidth=2;ctx.stroke();
-    ctx.shadowBlur=0;ctx.fillStyle="#9ff7e3";ctx.font="bold 9px system-ui";ctx.textAlign="center";ctx.textBaseline="middle";
-    ctx.fillText(i===0?"START":"SAFE",c.x,c.y+1);
     ctx.restore();
   });
 
-  // digitales Virus
-  drawVirus(s.virus.x,s.virus.y,now);
+  // Einmaliger Schild-Gegenstand.
+  if(s.shieldPos) drawShieldItem(s.shieldPos.x,s.shieldPos.y,now);
+
+  // zwei digitale Viren
+  if(!s.virusesHidden)s.viruses.forEach(v=>{if(v.active)drawVirus(v.x,v.y,now)});
+
+  // Scanner-Einfassungen in den angrenzenden Wandfeldern.
+  scanners.forEach(sc=>drawScannerWallMounts(sc));
 
   // scanners
-  scanners.forEach((sc,i)=>{
+  scanners.forEach(sc=>{
     const c=cellCenter(sc.x,sc.y);const active=s.freezeScanners?false:scannerActive(sc,now);
     ctx.save();
     ctx.globalAlpha=active?.95:.28;
-    ctx.strokeStyle=active?"#ff5c68":"#a95760";ctx.lineWidth=4;
-    ctx.beginPath();ctx.moveTo(c.x-CELL*.40,c.y);ctx.lineTo(c.x+CELL*.40,c.y);ctx.stroke();
+    ctx.strokeStyle=active?"#ff5c68":"#a95760";ctx.lineWidth=4;ctx.lineCap="round";
+    ctx.beginPath();
+    if(sc.orientation==="vertical"){
+      // Vertikaler Gang: Scannerstrahl quer/horizontal.
+      ctx.moveTo(c.x-CELL*.46,c.y);ctx.lineTo(c.x+CELL*.46,c.y);
+    }else{
+      // Horizontaler Gang: Scannerstrahl quer/vertikal.
+      ctx.moveTo(c.x,c.y-CELL*.46);ctx.lineTo(c.x,c.y+CELL*.46);
+    }
+    ctx.stroke();
     ctx.fillStyle=active?"#ffcccf":"#6e3e45";
     ctx.beginPath();ctx.arc(c.x,c.y,4.5,0,Math.PI*2);ctx.fill();
     ctx.restore();
@@ -1513,8 +1719,11 @@ function drawMaze(now){
     ctx.fillStyle=t.solved?"#1d4d34":"#102d38";
     roundedRect(c.x-14,c.y-14,28,28,6);ctx.fill();
     ctx.strokeStyle=t.color;ctx.lineWidth=2;ctx.stroke();
-    ctx.shadowBlur=0;ctx.font="17px system-ui";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(t.solved?"✓":t.icon,c.x,c.y+1);
+    if(!t.solved){
+      ctx.shadowBlur=0;ctx.font="17px system-ui";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(t.icon,c.x,c.y+1);
+    }
     ctx.font="bold 10px system-ui";ctx.fillStyle=t.color;
+    ctx.textAlign="center";ctx.textBaseline="alphabetic";
     const tx=Math.max(OX+42,Math.min(OX+COLS*CELL-42,c.x));
     ctx.fillText(t.label,tx,c.y-22);
     ctx.restore();
@@ -1529,11 +1738,56 @@ function drawMaze(now){
     ctx.font="bold 10px system-ui";ctx.fillStyle=unlocked?"#f3d35c":"#8d8877";ctx.fillText("UPLOAD",c.x,c.y-23);ctx.restore();}
 
   drawBug(s.player.x,s.player.y,s.player.dir||"up",now);
+  if(s.hasShield) drawPlayerShield(s.player.x,s.player.y,now);
   drawMessage(now);
   if(s.puzzle) drawPuzzle(now);
 }
+function drawScannerWallMounts(sc){
+  const walls=sc.orientation==="vertical"
+    ? [{x:sc.x-1,y:sc.y,side:"right"},{x:sc.x+1,y:sc.y,side:"left"}]
+    : [{x:sc.x,y:sc.y-1,side:"bottom"},{x:sc.x,y:sc.y+1,side:"top"}];
+  for(const w of walls){
+    if(w.x<0||w.y<0||w.x>=COLS||w.y>=ROWS||maze[w.y][w.x]!==1)continue;
+    const px=OX+w.x*CELL,py=OY+w.y*CELL;
+    ctx.save();
+    ctx.fillStyle="rgba(39,31,38,.68)";
+    roundedRect(px+3,py+3,CELL-6,CELL-6,5);ctx.fill();
+    ctx.strokeStyle="#80515c";ctx.lineWidth=1.6;ctx.stroke();
+    ctx.strokeStyle="rgba(255,116,128,.35)";ctx.lineWidth=1;
+    roundedRect(px+7,py+7,CELL-14,CELL-14,3);ctx.stroke();
+    ctx.fillStyle="#9e5965";
+    if(w.side==="right")ctx.fillRect(px+CELL-6,py+9,3,CELL-18);
+    else if(w.side==="left")ctx.fillRect(px+3,py+9,3,CELL-18);
+    else if(w.side==="bottom")ctx.fillRect(px+9,py+CELL-6,CELL-18,3);
+    else ctx.fillRect(px+9,py+3,CELL-18,3);
+    ctx.restore();
+  }
+}
+function drawShieldItem(gx,gy,now){
+  const c=cellCenter(gx,gy),pulse=1+Math.sin(now/170)*.05;
+  ctx.save();ctx.translate(c.x,c.y);ctx.scale(pulse,pulse);
+  ctx.shadowBlur=14;ctx.shadowColor="#72e5ff";
+  ctx.fillStyle="rgba(22,94,120,.82)";ctx.strokeStyle="#72e5ff";ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(0,-11);ctx.lineTo(9,-7);ctx.lineTo(8,2);ctx.quadraticCurveTo(6,9,0,13);ctx.quadraticCurveTo(-6,9,-8,2);ctx.lineTo(-9,-7);ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.shadowBlur=0;ctx.strokeStyle="#d7f8ff";ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(0,-7);ctx.lineTo(0,8);ctx.stroke();
+  ctx.restore();
+}
+function drawPlayerShield(gx,gy,now){
+  const c=cellCenter(gx,gy),r=15+Math.sin(now/130)*1.3;
+  ctx.save();ctx.strokeStyle="rgba(114,229,255,.92)";ctx.lineWidth=2;ctx.shadowBlur=13;ctx.shadowColor="#72e5ff";
+  ctx.beginPath();ctx.arc(c.x,c.y,r,0,Math.PI*2);ctx.stroke();
+  ctx.globalAlpha=.23;ctx.fillStyle="#72e5ff";ctx.beginPath();ctx.arc(c.x,c.y,r-1,0,Math.PI*2);ctx.fill();ctx.restore();
+}
 function drawVirus(gx,gy,now){
-  const c=cellCenter(gx,gy),pulse=1+Math.sin(now/120)*.08;
+  const c=cellCenter(gx,gy),pulse=1+Math.sin(now/120)*.055;
+  if(virusImage.complete&&virusImage.naturalWidth>0){
+    const size=28;
+    ctx.save();ctx.translate(c.x,c.y);ctx.scale(pulse,pulse);
+    ctx.shadowBlur=13;ctx.shadowColor="rgba(255,78,199,.72)";
+    ctx.drawImage(virusImage,-size/2,-size/2,size,size);
+    ctx.restore();
+    return;
+  }
   ctx.save();ctx.translate(c.x,c.y);ctx.scale(pulse,pulse);
   ctx.shadowBlur=16;ctx.shadowColor="#ff4ec7";
   ctx.fillStyle="#6e164f";ctx.strokeStyle="#ff65d2";ctx.lineWidth=2;
@@ -1542,7 +1796,6 @@ function drawVirus(gx,gy,now){
     ctx.beginPath();ctx.moveTo(Math.cos(a)*9,Math.sin(a)*9);ctx.lineTo(Math.cos(a)*15,Math.sin(a)*15);ctx.stroke();
   }
   ctx.beginPath();ctx.arc(0,0,10,0,Math.PI*2);ctx.fill();ctx.stroke();
-  ctx.shadowBlur=0;ctx.fillStyle="#ffb7ed";ctx.font="bold 11px system-ui";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText("V",0,1);
   ctx.restore();
 }
 function drawBug(gx,gy,dir,now){
@@ -2069,7 +2322,9 @@ function drawStartScreen(){
   ctx.textAlign="left";
 }
 function drawEndScreen(){
-  drawCircuitBackdrop();
+  const endImage=s.won?winScreenImage:failScreenImage;
+  if(endImage.complete&&endImage.naturalWidth>0) ctx.drawImage(endImage,0,0,W,H);
+  else drawCircuitBackdrop();
 
   const boxH=s.won?150:138;
   const boxY=H-boxH-28;
@@ -2132,9 +2387,16 @@ window.addEventListener("keydown",e=>{
     }
     return;
   }
-  if(lower==="o"){s.freezeScanners=!s.freezeScanners;showMessage(s.freezeScanners?"TEST: Scanner eingefroren":"TEST: Scanner aktiv");return}
+  if(lower==="o"){
+    s.virusesHidden=!s.virusesHidden;
+    if(!s.virusesHidden){
+      const now=performance.now();
+      s.viruses.forEach((v,i)=>{if(v.active)v.nextMove=now+320+i*120});
+    }
+    return;
+  }
   if(lower==="l"){
-    const t=terminals.find(t=>!t.solved);if(t){t.solved=true;s.checkpoint={...t.pos};updateHud();showMessage("TEST: Datenknoten freigeschaltet")};return;
+    const t=terminals.find(t=>!t.solved);if(t){t.solved=true;s.checkpoint={...t.pos};s.safeCheckpoint={...t.pos};updateHud();showMessage("TEST: Datenknoten freigeschaltet")};return;
   }
 
   if(s.puzzle){
