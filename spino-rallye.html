@@ -59,7 +59,7 @@
   </div>
   <canvas id="game" width="920" height="620"></canvas>
   <div class="controls">
-    <span class="control-block"><kbd>Leertaste</kbd><span>Start</span></span>
+    <span class="control-block"><kbd>Leertaste</kbd><span>Springen</span></span>
     <span class="control-block"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>/</span><kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd><span>Steuern</span></span>
     <span class="control-block"><kbd>P</kbd><span>Pause</span></span>
     <span class="control-block"><kbd>M</kbd><span>Sound an/aus</span></span>
@@ -73,493 +73,930 @@ const hitState=document.getElementById('hitState');
 const fuelFill=document.getElementById('fuelFill');
 const W=canvas.width,H=canvas.height;
 
-const ROAD={x:170,w:580};
 const LEVEL_SECONDS=50;
-const BASE_SCROLL=220; // px/s – schnellerer Teststand
-const JEEP_W=64,JEEP_H=96;
-const MAX_SIDE_SPEED=340;
-const MAX_VERTICAL_SPEED=285;
-const ROAD_OVERHANG_X=20; // Jeep darf 20 px über den Straßenrand hinaus
-const OBSTACLE_GAP_MIN=390;
-const OBSTACLE_GAP_MAX=550;
 const MAX_HITS=3;
 const FUEL_MAX=100;
-const FUEL_PER_ITEM=20;
+const FUEL_PER_ITEM=25;
 const FUEL_ITEMS_TOTAL=8;
-const FUEL_DRAIN_PER_SECOND=FUEL_MAX/(LEVEL_SECONDS*.5); // voller Tank = 50 % des Levels
-const FUEL_W=40,FUEL_H=48;
-const FUEL_TRAVEL_LEAD=2.45; // ungefährer Weg vom oberen Rand bis zum Jeep
-const CREEK_COUNT=3;
-const CREEK_H=34;
-const BRIDGE_W=138;
-const BRIDGE_H=52;
-const CREEK_ARRIVALS=[13,27,41]; // ungefähr bei 1/4, 1/2 und 3/4 des Levels
+const FUEL_DRAIN_PER_SECOND=FUEL_MAX/(LEVEL_SECONDS*.5);
+const FUEL_W=46,FUEL_H=46;
+const MEDIPAC_W=48,MEDIPAC_H=48;
+const JUMP_FUEL_COST=5;
+const JUMP_DURATION=.68;
+const JUMP_HEIGHT=40;
+const FUEL_TRAVEL_LEAD=2.45;
+
+const LEVELS=[
+  {
+    name:'LAND', vehicle:'jeep', baseScroll:220, endSpeed:1.34,
+    xMin:170+26-20, xMax:170+580-26+20,
+    moveX:408, moveY:342, steerLag:0, edgeHit:true,
+    gapStart:[300,430], gapEnd:[215,325],
+    creekArrivals:[13,27,41]
+  },
+  {
+    name:'WASSER', vehicle:'jetski', baseScroll:238, endSpeed:1.40,
+    xMin:158, xMax:W-158,
+    moveX:430, moveY:365, steerLag:0.10, edgeHit:true,
+    gapStart:[285,405], gapEnd:[195,295],
+    creekArrivals:[]
+  },
+  {
+    name:'LUFT', vehicle:'jet', baseScroll:258, endSpeed:1.46,
+    xMin:52, xMax:W-52,
+    moveX:452, moveY:386, steerLag:0.20, edgeHit:false,
+    gapStart:[270,385], gapEnd:[175,270],
+    creekArrivals:[]
+  }
+];
+
+const VEHICLES={
+  jeep:{drawW:93,drawH:122,hitW:52,hitH:78}, // ca. 20 % kleiner als v10
+  jetski:{drawW:86,drawH:142,hitW:54,hitH:104},
+  jet:{drawW:168,drawH:142,hitW:112,hitH:86}
+};
 
 let keys={left:false,right:false,up:false,down:false};
 let last=performance.now();
 let state;
 
-// --- Sound ---------------------------------------------------------------
-let audioCtx=null;
-let soundMuted=false;
+function loadSprite(src){const img=new Image();img.src=src;return img;}
+const SPRITES={
+  fuel:loadSprite('spino-rallye-assets/sprite_fuel.png'),
+  medkit:loadSprite('spino-rallye-assets/sprite_medkit.png'),
+  startScreen:loadSprite('spino-rallye-assets/spino_start_screen.png'),
+  stego:loadSprite('spino-rallye-assets/sprite_stego.png'),
+  triceratops:loadSprite('spino-rallye-assets/sprite_triceratops.png'),
+  jeep:loadSprite('spino-rallye-assets/sprite_spiono_jeep.png'),
+  jetski:loadSprite('spino-rallye-assets/sprite_spiono_jetski.png'),
+  jet:loadSprite('spino-rallye-assets/sprite_spiono_jet.png'),
+  bgLand01:loadSprite('spino-rallye-assets/backround_01.png'),
+  bgWater02:loadSprite('spino-rallye-assets/backround_02.png'),
+  bgSky03:loadSprite('spino-rallye-assets/backround_03.png'),
+  river:loadSprite('spino-rallye-assets/sprite_river.png'),
+  bridge:loadSprite('spino-rallye-assets/sprite_bridge.png'),
+  clouds:[
+    loadSprite('spino-rallye-assets/sprite_cloud1.png'),
+    loadSprite('spino-rallye-assets/sprite_cloud2.png'),
+    loadSprite('spino-rallye-assets/sprite_cloud3.png')
+  ],
+  birds:[
+    loadSprite('spino-rallye-assets/sprite_bird1.png'),
+    loadSprite('spino-rallye-assets/sprite_bird2.png'),
+    loadSprite('spino-rallye-assets/sprite_bird3.png')
+  ],
+  buoys:[
+    loadSprite('spino-rallye-assets/sprite_buoy1.png'),
+    loadSprite('spino-rallye-assets/sprite_buoy2.png'),
+    loadSprite('spino-rallye-assets/sprite_buoy3.png')
+  ],
+  trees:[
+    loadSprite('spino-rallye-assets/sprite_tree1.png'),
+    loadSprite('spino-rallye-assets/sprite_tree2.png'),
+    loadSprite('spino-rallye-assets/sprite_tree3.png')
+  ],
+  rocks:[
+    loadSprite('spino-rallye-assets/sprite_rock1.png'),
+    loadSprite('spino-rallye-assets/sprite_rock2.png'),
+    loadSprite('spino-rallye-assets/sprite_rock3.png')
+  ]
+};
+const TREE_DRAW_SIZE=118,ROCK_DRAW_SIZE=82;
+const CLOUD_DRAW_SIZES=[104,124,146];
+const CLOUD_HITBOXES=[{w:76,h:58},{w:92,h:70},{w:108,h:82}];
+const BIRD_DRAW_SIZES=[74,84,96];
+const BIRD_HITBOXES=[{w:54,h:30},{w:62,h:34},{w:74,h:40}];
+const BUOY_DRAW_SIZES=[98,82,92];
+const BUOY_HITBOXES=[{w:61,h:76},{w:50,h:62},{w:56,h:70}];
+const SFX_VOLUME_MULTIPLIER=1.4;
+const TREE_HITBOXES=[{w:108,h:50},{w:110,h:46},{w:104,h:56}];
+const ROCK_HITBOXES=[{w:62,h:58},{w:74,h:44},{w:58,h:70}];
+const SPAWN_PAD_FUEL_OBSTACLE=18;
+const SPAWN_PAD_CREEK_OBSTACLE=28;
+const SPAWN_PAD_FUEL_CREEK=12;
+const RIVER_FALLBACK_H=298;
+const BRIDGE_HEIGHT_FACTOR=1.08;
+const LOW_FUEL_RATIO=.20;
+const NEAR_MISS_DIST=14;
+const DUST_PATCH_CONTROL=.88;
+function spriteReady(img){return img&&img.complete&&img.naturalWidth>0;}
+function riverDrawH(){
+  const img=SPRITES.river;
+  return (spriteReady(img)?W*(img.naturalHeight/img.naturalWidth):RIVER_FALLBACK_H)*0.60;
+}
+function bridgeDrawSize(){
+  const h=riverDrawH()*BRIDGE_HEIGHT_FACTOR;
+  const img=SPRITES.bridge;
+  const ratio=spriteReady(img)?img.naturalWidth/img.naturalHeight:1.095;
+  return {w:h*ratio,h};
+}
+
+let audioCtx=null,soundMuted=false;
 function ensureAudio(){
-  if(soundMuted)return null;
-  const AC=window.AudioContext||window.webkitAudioContext;
-  if(!AC)return null;
-  if(!audioCtx)audioCtx=new AC();
-  if(audioCtx.state==='suspended')audioCtx.resume();
-  return audioCtx;
+  if(soundMuted)return null;const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return null;
+  if(!audioCtx)audioCtx=new AC();if(audioCtx.state==='suspended')audioCtx.resume();return audioCtx;
 }
 function tone(freq,duration=.09,type='sine',volume=.035,delay=0){
-  const ac=ensureAudio();if(!ac)return;
-  const t=ac.currentTime+delay,osc=ac.createOscillator(),gain=ac.createGain();
-  osc.type=type;osc.frequency.setValueAtTime(freq,t);
-  gain.gain.setValueAtTime(.0001,t);
-  gain.gain.exponentialRampToValueAtTime(volume,t+.012);
-  gain.gain.exponentialRampToValueAtTime(.0001,t+duration);
+  const ac=ensureAudio();if(!ac)return;const t=ac.currentTime+delay,osc=ac.createOscillator(),gain=ac.createGain();
+  volume*=SFX_VOLUME_MULTIPLIER;
+  osc.type=type;osc.frequency.setValueAtTime(freq,t);gain.gain.setValueAtTime(.0001,t);
+  gain.gain.exponentialRampToValueAtTime(Math.max(.0002,volume),t+.012);gain.gain.exponentialRampToValueAtTime(.0001,t+duration);
   osc.connect(gain);gain.connect(ac.destination);osc.start(t);osc.stop(t+duration+.03);
 }
 function sfx(name){
   if(soundMuted)return;
-  if(name==='count'){tone(500,.07,'square',.025)}
+  if(name==='count')tone(500,.07,'square',.025);
   else if(name==='start'){tone(440,.07,'triangle',.03);tone(660,.10,'triangle',.035,.08)}
   else if(name==='hit'){tone(150,.12,'sawtooth',.045);tone(95,.18,'square',.035,.05)}
   else if(name==='fuel'){tone(620,.07,'triangle',.03);tone(840,.10,'triangle',.035,.07)}
+  else if(name==='medipac'){tone(520,.07,'sine',.03);tone(700,.08,'sine',.035,.06);tone(920,.11,'triangle',.03,.13)}
+  else if(name==='jump'){tone(280,.07,'triangle',.03);tone(430,.09,'triangle',.035,.045);tone(620,.08,'sine',.025,.11)}
+  else if(name==='level'){tone(520,.08,'triangle',.03);tone(700,.09,'triangle',.035,.08);tone(900,.12,'triangle',.04,.17)}
   else if(name==='fail'){tone(180,.14,'square',.04);tone(120,.20,'sawtooth',.035,.10)}
   else if(name==='win'){tone(440,.08,'triangle',.03);tone(660,.10,'triangle',.035,.09);tone(880,.15,'triangle',.04,.19)}
 }
 
 function makeFuelSchedule(){
-  // Acht Ziel-Zeitpunkte im Abstand von etwa 5 s. Die kleine Zufallsabweichung
-  // und die zufällige Fahrspur machen jeden Lauf anders, ohne unfaire RNG-Runden.
   return Array.from({length:FUEL_ITEMS_TOTAL},(_,i)=>{
     const arrival=7.5+i*5+(Math.random()*1.5-.75);
     return {spawnAt:Math.max(.8,arrival-FUEL_TRAVEL_LEAD),spawned:false};
   });
 }
-
 function makeCreekSchedule(){
-  return CREEK_ARRIVALS.map(arrival=>({
-    spawnAt:Math.max(.5,arrival-FUEL_TRAVEL_LEAD),
-    spawned:false
-  }));
+  return LEVELS[state.levelIndex].creekArrivals.map(arrival=>({spawnAt:Math.max(.5,arrival-FUEL_TRAVEL_LEAD),spawned:false}));
 }
+function makeMedipacSchedule(){
+  // Genau ein Medipac pro Level; Ankunft zwischen 50 % und knapp vor 80 % des Levels.
+  const arrival=LEVEL_SECONDS*(.50+Math.random()*.28);
+  return {spawnAt:Math.max(.8,arrival-FUEL_TRAVEL_LEAD),spawned:false};
+}
+function makeDustPatches(){
+  return [
+    {x:262,w:294,h:84,y:-340,phase:0.4},
+    {x:320,w:276,h:78,y:-1680,phase:1.8},
+    {x:236,w:318,h:86,y:-2980,phase:2.9}
+  ];
+}
+function makeWindGusts(){
+  const gusts=[];
+  let t=8.5+Math.random()*1.8;
+  for(let i=0;i<3;i++){
+    const dur=1.6+Math.random()*1.0;
+    const force=(Math.random()<.5?-1:1)*(44+Math.random()*24);
+    gusts.push({start:t,dur,force});
+    t+=8.5+Math.random()*4.0;
+  }
+  return gusts;
+}
+function vehicleCfg(){return VEHICLES[LEVELS[state.levelIndex].vehicle];}
+function levelCfg(){return LEVELS[state.levelIndex];}
+function progress01(){return Math.min(1,state.elapsed/LEVEL_SECONDS);}
+function lerp(a,b,t){return a+(b-a)*t;}
 
-function reset(){
+function initLevel(levelIndex,mode='start'){
+  const keepLevel=Math.max(0,Math.min(2,levelIndex));
   state={
-    mode:'start', // start,countdown,play,paused,win
-    countdown:3,
-    countdownUntil:0,
-    elapsed:0,
-    roadOffset:0,
-    jeepX:W/2,
-    jeepY:H-120,
-    jeepTilt:0,
-    hits:0,
-    invuln:0,
-    obstacles:[],
-    fuelItems:[],
-    fuelSchedule:makeFuelSchedule(),
-    creeks:[],
-    creekSchedule:makeCreekSchedule(),
-    fuel:FUEL_MAX,
-    fuelCollected:0,
-    spawnDistance:120,
-    distanceTravelled:0,
-    shake:0,
-    flash:0
+    levelIndex:keepLevel,mode,countdown:3,countdownUntil:0,
+    elapsed:0,roadOffset:0,jeepX:W/2,jeepY:H-120,jeepTilt:0,
+    jumping:false,jumpElapsed:0,sideEdgeContact:false,steerX:0,
+    hits:0,invuln:0,obstacles:[],fuelItems:[],medipacItems:[],creeks:[],fuel:FUEL_MAX,fuelCollected:0,
+    fuelSchedule:[],medipacSchedule:null,creekSchedule:[],spawnDistance:120,distanceTravelled:0,shake:0,flash:0,
+    dustPatches:[],windGusts:[],windForce:0,
+    stego:null,stegoSpawned:false,stegoMessageUntil:0,
+    triceratops:null,triceratopsSpawned:false,triceratopsMessageUntil:0,
+    nearMissUntil:0,nearMissCooldown:0,
+    exitSpeed:0,exitFinal:false
   };
+  state.fuelSchedule=makeFuelSchedule();
+  state.medipacSchedule=makeMedipacSchedule();
+  state.creekSchedule=makeCreekSchedule();
+  if(keepLevel===0)state.dustPatches=makeDustPatches();
+  if(keepLevel===2)state.windGusts=makeWindGusts();
   keys.left=keys.right=keys.up=keys.down=false;
   updateHud();
 }
+function reset(){initLevel(0,'start');}
 reset();
 
 function updateHud(){
   hitState.textContent=`${state.hits}/${MAX_HITS}`;
-  const fuel=Math.max(0,Math.min(FUEL_MAX,state.fuel));
-  fuelFill.style.transform=`scaleX(${fuel/FUEL_MAX})`;
-}
-
-function startCountdown(){
-  if(state.mode==='start' || state.mode==='win' || state.mode==='fail' || state.mode==='fuelFail'){
-    if(state.mode==='win' || state.mode==='fail' || state.mode==='fuelFail') reset();
-    ensureAudio();
-    state.mode='countdown';
-    state.countdown=3;
-    state.countdownUntil=performance.now()+650;
-    sfx('count');
+  const ratio=Math.max(0,Math.min(1,state.fuel/FUEL_MAX));
+  fuelFill.style.transform=`scaleX(${ratio})`;
+  if(ratio<=LOW_FUEL_RATIO&&state&&state.mode==='play'){
+    const pulse=.62+.38*(.5+.5*Math.sin(performance.now()*0.018));
+    fuelFill.style.opacity=String(pulse);
+    fuelFill.style.filter=`brightness(${1.0+.45*pulse}) saturate(1.25)`;
+    fuelFill.style.boxShadow=`0 0 ${8+10*pulse}px rgba(255,210,70,.75)`;
+  }else{
+    fuelFill.style.opacity='1';
+    fuelFill.style.filter='';
+    fuelFill.style.boxShadow='';
   }
 }
-
-function spawnObstacle(){
-  const types=['rock','log','bush'];
-  const type=types[Math.floor(Math.random()*types.length)];
-  const margin=55;
-  const x=ROAD.x+margin+Math.random()*(ROAD.w-margin*2);
-  const size= type==='log' ? {w:92,h:30} : type==='rock' ? {w:54,h:48} : {w:62,h:52};
-  state.obstacles.push({type,x,y:-70,w:size.w,h:size.h,rot:(Math.random()-.5)*.6});
+function startCountdown(){
+  if(['start','win','fail','fuelFail'].includes(state.mode)){
+    if(['win','fail','fuelFail'].includes(state.mode)) reset();
+    ensureAudio();state.mode='countdown';state.countdown=3;state.countdownUntil=performance.now()+650;sfx('count');
+  }
+}
+function startInterLevelCountdown(levelIndex){
+  initLevel(levelIndex,'countdown');
+  ensureAudio();
+  state.countdown=3;
+  state.countdownUntil=performance.now()+650;
+  sfx('count');
+}
+function beginLevelExit(){
+  state.mode='levelExit';
+  state.exitSpeed=760;
+  state.exitFinal=state.levelIndex>=2;
+  state.jumping=false;
+  state.jumpElapsed=0;
+  keys.left=keys.right=keys.up=keys.down=false;
 }
 
+function rectHit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
+function paddedRect(r,p){return{x:r.x-p,y:r.y-p,w:r.w+p*2,h:r.h+p*2};}
+function obstacleRect(o){return{x:o.x-o.hitW/2,y:o.y-o.hitH/2,w:o.hitW,h:o.hitH};}
+function fuelRect(f){return{x:f.x-f.w*.40,y:f.y-f.h*.42,w:f.w*.80,h:f.h*.84};}
+function medipacRect(m){return{x:m.x-m.w*.42,y:m.y-m.h*.42,w:m.w*.84,h:m.h*.84};}
+function creekRect(c){const h=riverDrawH();return{x:0,y:c.y-h/2,w:W,h};}
+function overlapsAny(rect,items,rectFn,pad=0){return items.some(item=>rectHit(paddedRect(rect,pad),rectFn(item)));}
+function distanceBetweenRects(a,b){
+  const dx=Math.max(0,Math.max(a.x-(b.x+b.w),b.x-(a.x+a.w)));
+  const dy=Math.max(0,Math.max(a.y-(b.y+b.h),b.y-(a.y+a.h)));
+  return Math.hypot(dx,dy);
+}
+function nearestDistance(rect,items,rectFn){let best=Infinity;for(const item of items)best=Math.min(best,distanceBetweenRects(rect,rectFn(item)));return best;}
+
+function randomObstacleSpec(){
+  if(state.levelIndex===2){
+    const type=Math.random()<.58?'cloud':'bird';
+    const variant=Math.floor(Math.random()*3);
+    if(type==='cloud')return{type,variant,hit:CLOUD_HITBOXES[variant],drawSize:CLOUD_DRAW_SIZES[variant]};
+    return{type,variant,hit:BIRD_HITBOXES[variant],drawSize:BIRD_DRAW_SIZES[variant]};
+  }
+  if(state.levelIndex===1){
+    const pool=[
+      {type:'tree',variant:1,hit:TREE_HITBOXES[1],drawSize:TREE_DRAW_SIZE},
+      {type:'rock',variant:1,hit:ROCK_HITBOXES[1],drawSize:ROCK_DRAW_SIZE},
+      {type:'rock',variant:2,hit:ROCK_HITBOXES[2],drawSize:ROCK_DRAW_SIZE},
+      {type:'buoy',variant:0,hit:BUOY_HITBOXES[0],drawSize:BUOY_DRAW_SIZES[0]},
+      {type:'buoy',variant:1,hit:BUOY_HITBOXES[1],drawSize:BUOY_DRAW_SIZES[1]},
+      {type:'buoy',variant:2,hit:BUOY_HITBOXES[2],drawSize:BUOY_DRAW_SIZES[2]}
+    ];
+    return pool[Math.floor(Math.random()*pool.length)];
+  }
+  const type=Math.random()<.50?'tree':'rock';
+  const variant=Math.floor(Math.random()*3);
+  const hit=(type==='tree'?TREE_HITBOXES:ROCK_HITBOXES)[variant];
+  const drawSize=type==='tree'?TREE_DRAW_SIZE:ROCK_DRAW_SIZE;
+  return{type,variant,hit,drawSize};
+}
+function canPlaceObstacle(spec,x,y,pad=14){
+  const r={x:x-spec.hit.w/2,y:y-spec.hit.h/2,w:spec.hit.w,h:spec.hit.h};
+  if(overlapsAny(r,state.fuelItems,fuelRect,SPAWN_PAD_FUEL_OBSTACLE))return false;
+  if(overlapsAny(r,state.medipacItems,medipacRect,SPAWN_PAD_FUEL_OBSTACLE))return false;
+  if(overlapsAny(r,state.creeks,creekRect,SPAWN_PAD_CREEK_OBSTACLE))return false;
+  if(overlapsAny(r,state.obstacles,obstacleRect,pad))return false;
+  return true;
+}
+function pushObstacle(spec,x,y,rot){state.obstacles.push({type:spec.type,variant:spec.variant,x,y,baseX:x,baseRot:rot,w:spec.drawSize,h:spec.drawSize,hitW:spec.hit.w,hitH:spec.hit.h,rot,animPhase:Math.random()*Math.PI*2,floatY:0});}
+function spawnSingleObstacle(y=-90,bias=null){
+  const cfg=levelCfg();
+  for(let attempt=0;attempt<28;attempt++){
+    const spec=randomObstacleSpec(),margin=Math.max(spec.hit.w/2+14,55);
+    let x=cfg.xMin+margin+Math.random()*Math.max(1,(cfg.xMax-cfg.xMin)-margin*2);
+    if(bias==='left')x=cfg.xMin+margin+Math.random()*((cfg.xMax-cfg.xMin)*.34);
+    if(bias==='right')x=cfg.xMax-margin-Math.random()*((cfg.xMax-cfg.xMin)*.34);
+    if(!canPlaceObstacle(spec,x,y,14))continue;
+    const rot=spec.type==='tree'?(Math.random()-.5)*.28:spec.type==='rock'?(Math.random()-.5)*.40:spec.type==='buoy'?(Math.random()-.5)*.12:(Math.random()-.5)*.10;
+    pushObstacle(spec,x,y,rot);return true;
+  }
+  return false;
+}
+function spawnGatePattern(){
+  const startLen=state.obstacles.length;
+  for(let attempt=0;attempt<16;attempt++){
+    const a=randomObstacleSpec(),b=randomObstacleSpec();
+    const gap=state.levelIndex===2?180:150;
+    const mid=(levelCfg().xMin+levelCfg().xMax)/2+(Math.random()-.5)*210;
+    const ax=mid-gap/2-a.hit.w/2,bx=mid+gap/2+b.hit.w/2;
+    if(ax<levelCfg().xMin+a.hit.w/2||bx>levelCfg().xMax-b.hit.w/2)continue;
+    if(!canPlaceObstacle(a,ax,-88,18)||!canPlaceObstacle(b,bx,-88,18))continue;
+    pushObstacle(a,ax,-88,0);pushObstacle(b,bx,-88,0);return true;
+  }
+  state.obstacles.length=startLen;return false;
+}
+function spawnSlalomPattern(){
+  const startLen=state.obstacles.length,firstLeft=Math.random()<.5;
+  const ok1=spawnSingleObstacle(-84,firstLeft?'left':'right');
+  const ok2=ok1&&spawnSingleObstacle(-214,firstLeft?'right':'left');
+  let ok3=true;
+  if(ok2&&progress01()>.58&&Math.random()<.58)ok3=spawnSingleObstacle(-334,Math.random()<.5?'left':'right');
+  if(!(ok1&&ok2&&ok3)){state.obstacles.length=startLen;return false;}return true;
+}
+function spawnOffsetPairPattern(){
+  const startLen=state.obstacles.length;
+  const ok1=spawnSingleObstacle(-88,Math.random()<.5?'left':'right');
+  const ok2=ok1&&spawnSingleObstacle(-182,Math.random()<.5?'left':'right');
+  if(!(ok1&&ok2)){state.obstacles.length=startLen;return false;}return true;
+}
+function spawnObstaclePattern(){
+  const p=progress01(),r=Math.random();let fns;
+  if(state.levelIndex===0){
+    fns=p>.58&&r<.30?[spawnGatePattern,spawnSlalomPattern,spawnOffsetPairPattern,spawnSingleObstacle]:
+        p>.28&&r<.68?[spawnSlalomPattern,spawnOffsetPairPattern,spawnGatePattern,spawnSingleObstacle]:[spawnOffsetPairPattern,spawnSingleObstacle,spawnGatePattern];
+  }else if(state.levelIndex===1){
+    fns=p>.45?[spawnSlalomPattern,spawnGatePattern,spawnOffsetPairPattern,spawnSingleObstacle]:[spawnOffsetPairPattern,spawnSingleObstacle,spawnGatePattern];
+  }else{
+    fns=p>.35?[spawnGatePattern,spawnSlalomPattern,spawnOffsetPairPattern,spawnSingleObstacle]:[spawnSlalomPattern,spawnOffsetPairPattern,spawnSingleObstacle];
+  }
+  for(const fn of fns)if(fn())return true;return false;
+}
 function spawnFuel(){
-  const margin=52;
-  const x=ROAD.x+margin+Math.random()*(ROAD.w-margin*2);
-  state.fuelItems.push({x,y:-55,w:FUEL_W,h:FUEL_H,spin:Math.random()*Math.PI*2});
+  const y=-55,cfg=levelCfg(),margin=58,candidates=[];
+  for(let attempt=0;attempt<28;attempt++){
+    const x=cfg.xMin+margin+Math.random()*Math.max(1,(cfg.xMax-cfg.xMin)-margin*2);
+    const r={x:x-FUEL_W*.40,y:y-FUEL_H*.42,w:FUEL_W*.80,h:FUEL_H*.84};
+    if(overlapsAny(r,state.obstacles,obstacleRect,SPAWN_PAD_FUEL_OBSTACLE))continue;
+    if(overlapsAny(r,state.medipacItems,medipacRect,SPAWN_PAD_FUEL_OBSTACLE))continue;
+    if(overlapsAny(r,state.creeks,creekRect,SPAWN_PAD_FUEL_CREEK))continue;
+    const center=(cfg.xMin+cfg.xMax)/2,edgeBias=Math.abs(x-center)/((cfg.xMax-cfg.xMin)/2);
+    const obstacleDist=nearestDistance(r,state.obstacles,obstacleRect);
+    const score=edgeBias*.70+Math.max(0,1-Math.min(obstacleDist,220)/220)*.55;
+    candidates.push({x,score});
+  }
+  if(!candidates.length)return false;candidates.sort((a,b)=>b.score-a.score);
+  const pick=Math.random()<.72?candidates[0]:candidates[Math.floor(Math.random()*Math.min(3,candidates.length))];
+  state.fuelItems.push({x:pick.x,y,w:FUEL_W,h:FUEL_H,spin:Math.random()*Math.PI*2});return true;
+}
+function spawnMedipac(){
+  const y=-58,cfg=levelCfg(),margin=62;
+  for(let attempt=0;attempt<40;attempt++){
+    const x=cfg.xMin+margin+Math.random()*Math.max(1,(cfg.xMax-cfg.xMin)-margin*2);
+    const r={x:x-MEDIPAC_W*.42,y:y-MEDIPAC_H*.42,w:MEDIPAC_W*.84,h:MEDIPAC_H*.84};
+    if(overlapsAny(r,state.obstacles,obstacleRect,22))continue;
+    if(overlapsAny(r,state.fuelItems,fuelRect,20))continue;
+    if(overlapsAny(r,state.creeks,creekRect,18))continue;
+    state.medipacItems.push({x,y,w:MEDIPAC_W,h:MEDIPAC_H,bob:Math.random()*Math.PI*2});
+    return true;
+  }
+  return false;
+}
+function spawnCreek(){
+  const riverH=riverDrawH(),bridge=bridgeDrawSize();
+  const y=-riverH/2-8,candidate={x:0,y:y-riverH/2,w:W,h:riverH};
+  if(overlapsAny(candidate,state.obstacles,obstacleRect,SPAWN_PAD_CREEK_OBSTACLE))return false;
+  if(overlapsAny(candidate,state.fuelItems,fuelRect,SPAWN_PAD_FUEL_CREEK))return false;
+  if(overlapsAny(candidate,state.medipacItems,medipacRect,SPAWN_PAD_FUEL_CREEK))return false;
+  const margin=bridge.w/2+28,bridgeX=170+margin+Math.random()*Math.max(1,580-margin*2);
+  state.creeks.push({y,bridgeX,hit:false});return true;
 }
 
-function spawnCreek(){
-  // Brücke zufällig innerhalb der Straße, mit genügend Abstand zum Straßenrand.
-  const margin=BRIDGE_W/2+28;
-  const bridgeX=ROAD.x+margin+Math.random()*(ROAD.w-margin*2);
-  state.creeks.push({y:-CREEK_H,bridgeX,hit:false});
+function hitPlayer(){
+  if(state.invuln>0)return;
+  state.hits++;state.invuln=1;state.flash=.25;state.shake=.35;sfx('hit');
+  if(state.hits>=MAX_HITS){state.mode='fail';sfx('fail');}
 }
 
 function update(dt,now){
+  if(state.mode==='levelExit'){
+    // Die komplette Szene bleibt stehen. Nur Spiono schießt aus dem Bild.
+    state.jeepY-=state.exitSpeed*dt;
+    state.exitSpeed=Math.min(980,state.exitSpeed+420*dt);
+    const cfg=vehicleCfg();
+    if(state.jeepY+cfg.drawH/2<-24){
+      if(state.exitFinal){
+        state.mode='win';
+        sfx('win');
+      }else{
+        startInterLevelCountdown(state.levelIndex+1);
+      }
+    }
+    return;
+  }
   if(state.mode==='countdown'){
-    if(now>=state.countdownUntil){
-      if(state.countdown>1){state.countdown--;state.countdownUntil=now+650;sfx('count');}
-      else{state.mode='play';state.countdown=0;sfx('start');}
+    if(now>=state.countdownUntil){if(state.countdown>1){state.countdown--;state.countdownUntil=now+650;sfx('count');}else{state.mode='play';state.countdown=0;sfx('start');}}return;
+  }
+  if(state.mode!=='play')return;
+
+  state.elapsed+=dt;state.fuel=Math.max(0,state.fuel-FUEL_DRAIN_PER_SECOND*dt);
+  if(state.fuel<=0&&state.elapsed<LEVEL_SECONDS){state.fuel=0;state.mode='fuelFail';sfx('fail');updateHud();return;}
+  if(state.elapsed>=LEVEL_SECONDS){state.elapsed=LEVEL_SECONDS;beginLevelExit();updateHud();return;}
+
+  const cfg=levelCfg(),p=progress01(),speed=cfg.baseScroll*lerp(1,cfg.endSpeed,p);
+  state.roadOffset=(state.roadOffset+speed*dt)%120;state.distanceTravelled+=speed*dt;
+  if(state.distanceTravelled>=state.spawnDistance&&spawnObstaclePattern()){
+    const gapMin=lerp(cfg.gapStart[0],cfg.gapEnd[0],p),gapMax=lerp(cfg.gapStart[1],cfg.gapEnd[1],p);
+    state.spawnDistance+=gapMin+Math.random()*(gapMax-gapMin);
+  }
+  for(const f of state.fuelSchedule)if(!f.spawned&&state.elapsed>=f.spawnAt&&spawnFuel())f.spawned=true;
+  if(state.medipacSchedule&&!state.medipacSchedule.spawned&&state.elapsed>=state.medipacSchedule.spawnAt&&spawnMedipac())state.medipacSchedule.spawned=true;
+  if(state.levelIndex===0)for(const c of state.creekSchedule)if(!c.spawned&&state.elapsed>=c.spawnAt&&spawnCreek())c.spawned=true;
+  if(state.levelIndex===0&&!state.stegoSpawned&&state.elapsed>=18){
+    state.stego={x:92,y:-150,w:220,h:162,passed:false};
+    state.stegoSpawned=true;
+  }
+  if(state.levelIndex===1&&!state.triceratopsSpawned&&state.elapsed>=18){
+    state.triceratops={x:W-46,y:-165,w:228,h:185,passed:false};
+    state.triceratopsSpawned=true;
+  }
+
+  const dirX=(keys.left?-1:0)+(keys.right?1:0),dirY=(keys.up?-1:0)+(keys.down?1:0);
+  const lag=cfg.steerLag||0;
+  state.steerX=state.steerX*lag + dirX*(1-lag);
+  if(Math.abs(state.steerX)<0.001) state.steerX=0;
+  let controlFactor=1,envPushX=0;
+  const v=vehicleCfg();
+  const playerProbe={x:state.jeepX-v.hitW*.5,y:state.jeepY-v.hitH*.5,w:v.hitW,h:v.hitH};
+  if(state.levelIndex===0){
+    for(const pch of state.dustPatches){
+      const pr={x:pch.x,y:pch.y-pch.h/2,w:pch.w,h:pch.h};
+      if(rectHit(playerProbe,pr)){
+        controlFactor=DUST_PATCH_CONTROL;
+        envPushX+=Math.sin(now*.030+pch.phase)*10;
+        break;
+      }
     }
-    return;
+  }else if(state.levelIndex===2){
+    const gust=state.windGusts.find(g=>state.elapsed>=g.start&&state.elapsed<g.start+g.dur);
+    state.windForce=gust?gust.force:0;
+    envPushX+=state.windForce;
   }
-  if(state.mode!=='play') return;
+  const nextX=state.jeepX+state.steerX*cfg.moveX*dt*controlFactor+envPushX*dt,nextY=state.jeepY+dirY*cfg.moveY*dt;
+  const minX=cfg.xMin,maxX=cfg.xMax,hitSide=(nextX<=minX||nextX>=maxX);
+  state.jeepX=Math.max(minX,Math.min(maxX,nextX));
+  state.jeepY=Math.max(v.hitH/2,Math.min(H-v.hitH/2,nextY));
+  if(cfg.edgeHit && hitSide){if(!state.sideEdgeContact)hitPlayer();state.sideEdgeContact=true;}else state.sideEdgeContact=false;
 
-  state.elapsed+=dt;
-  state.fuel=Math.max(0,state.fuel-FUEL_DRAIN_PER_SECOND*dt);
-  if(state.fuel<=0 && state.elapsed<LEVEL_SECONDS){
-    state.fuel=0;
-    state.mode='fuelFail';
-    sfx('fail');
-    updateHud();
-    return;
+  const targetTilt=state.steerX*.14;state.jeepTilt+=(targetTilt-state.jeepTilt)*Math.min(1,dt*10);
+  if(state.jumping){state.jumpElapsed+=dt;if(state.jumpElapsed>=JUMP_DURATION){state.jumping=false;state.jumpElapsed=0;}}
+
+  for(const o of state.obstacles){
+    o.y+=speed*dt;
+    if(o.type==='cloud')o.x=o.baseX+Math.sin(state.elapsed*.45+o.animPhase)*18;
+    else if(o.type==='bird'){o.x=o.baseX+Math.sin(state.elapsed*2.10+o.animPhase)*24;o.rot=o.baseRot+Math.sin(state.elapsed*5.4+o.animPhase)*.06;}
+    else if(o.type==='buoy'){o.rot=o.baseRot+Math.sin(state.elapsed*1.80+o.animPhase)*.10;o.floatY=Math.sin(state.elapsed*2.35+o.animPhase)*4.5;}
   }
-  if(state.elapsed>=LEVEL_SECONDS){
-    state.elapsed=LEVEL_SECONDS;
-    state.mode='win';
-    sfx('win');
-    updateHud();
-    return;
-  }
-
-  const speed=BASE_SCROLL*(1+Math.min(.28,state.elapsed/LEVEL_SECONDS*.28));
-  state.roadOffset=(state.roadOffset+speed*dt)%120;
-  state.distanceTravelled+=speed*dt;
-
-  if(state.distanceTravelled>=state.spawnDistance){
-    spawnObstacle();
-    state.spawnDistance+=OBSTACLE_GAP_MIN+Math.random()*(OBSTACLE_GAP_MAX-OBSTACLE_GAP_MIN);
-  }
-
-  for(const f of state.fuelSchedule){
-    if(!f.spawned && state.elapsed>=f.spawnAt){f.spawned=true;spawnFuel();}
-  }
-
-  for(const c of state.creekSchedule){
-    if(!c.spawned && state.elapsed>=c.spawnAt){c.spawned=true;spawnCreek();}
-  }
-
-  const dirX=(keys.left?-1:0)+(keys.right?1:0);
-  const dirY=(keys.up?-1:0)+(keys.down?1:0);
-  const halfW=JEEP_W/2,halfH=JEEP_H/2;
-  const nextX=state.jeepX+dirX*MAX_SIDE_SPEED*dt;
-  const nextY=state.jeepY+dirY*MAX_VERTICAL_SPEED*dt;
-
-  // Links/rechts darf bis an den echten Bildrand gefahren werden.
-  // Nur der linke/rechte Bildrand verursacht einen Treffer.
-  const hitSideEdge=(nextX<=halfW || nextX>=W-halfW);
-  state.jeepX=Math.max(halfW,Math.min(W-halfW,nextX));
-
-  // Oben/unten wird lediglich begrenzt – dort gibt es keinen Treffer.
-  state.jeepY=Math.max(halfH,Math.min(H-halfH,nextY));
-  if(hitSideEdge && state.invuln<=0){
-    state.hits++;
-    state.invuln=1.0;
-    state.flash=.25;
-    state.shake=.35;
-    sfx('hit');
-    if(state.hits>=MAX_HITS){
-      state.mode='fail';
-      sfx('fail');
-    }
-  }
-
-  const targetTilt=dirX*.14;
-  state.jeepTilt+=(targetTilt-state.jeepTilt)*Math.min(1,dt*10);
-
-  for(const o of state.obstacles) o.y+=speed*dt;
   for(const f of state.fuelItems){f.y+=speed*dt;f.spin+=dt*1.7;}
+  for(const m of state.medipacItems){m.y+=speed*dt;m.bob+=dt*1.9;}
   for(const c of state.creeks)c.y+=speed*dt;
-  state.obstacles=state.obstacles.filter(o=>o.y<H+90);
-  state.fuelItems=state.fuelItems.filter(f=>f.y<H+90);
-  state.creeks=state.creeks.filter(c=>c.y<H+100);
+  for(const pch of state.dustPatches)pch.y+=speed*dt;
+  if(state.stego){
+    state.stego.y+=speed*dt;
+    if(!state.stego.passed && state.stego.y>state.jeepY-10){
+      state.stego.passed=true;
+      state.stegoMessageUntil=now+2800;
+    }
+    if(state.stego.y>H+140)state.stego=null;
+  }
+  if(state.triceratops){
+    state.triceratops.y+=speed*dt;
+    if(!state.triceratops.passed && state.triceratops.y>state.jeepY-10){
+      state.triceratops.passed=true;
+      state.triceratopsMessageUntil=now+2800;
+    }
+    if(state.triceratops.y>H+160)state.triceratops=null;
+  }
+  state.obstacles=state.obstacles.filter(o=>o.y<H+120);state.fuelItems=state.fuelItems.filter(f=>f.y<H+100);state.medipacItems=state.medipacItems.filter(m=>m.y<H+100);state.creeks=state.creeks.filter(c=>c.y<H+100);state.dustPatches=state.dustPatches.filter(p=>p.y<H+120);
+  if(state.invuln>0)state.invuln=Math.max(0,state.invuln-dt);if(state.flash>0)state.flash=Math.max(0,state.flash-dt);if(state.shake>0)state.shake=Math.max(0,state.shake-dt);if(state.nearMissCooldown>0)state.nearMissCooldown=Math.max(0,state.nearMissCooldown-dt);
 
-  if(state.invuln>0) state.invuln=Math.max(0,state.invuln-dt);
-  if(state.flash>0) state.flash=Math.max(0,state.flash-dt);
-  if(state.shake>0) state.shake=Math.max(0,state.shake-dt);
-
-  const jeep={x:state.jeepX-JEEP_W*.34,y:state.jeepY-JEEP_H*.40,w:JEEP_W*.68,h:JEEP_H*.78};
-  for(const f of state.fuelItems){
-    const box={x:f.x-f.w*.40,y:f.y-f.h*.42,w:f.w*.80,h:f.h*.84};
-    if(rectHit(jeep,box)){
-      state.fuel=Math.min(FUEL_MAX,state.fuel+FUEL_PER_ITEM);
-      state.fuelCollected++;
-      f.y=H+200;
-      sfx('fuel');
+  const player={x:state.jeepX-v.hitW*.5,y:state.jeepY-v.hitH*.5,w:v.hitW,h:v.hitH};
+  for(const f of state.fuelItems){if(rectHit(player,fuelRect(f))){state.fuel=Math.min(FUEL_MAX,state.fuel+FUEL_PER_ITEM);state.fuelCollected++;f.y=H+200;sfx('fuel');}}
+  for(const m of state.medipacItems){
+    if(rectHit(player,medipacRect(m))){
+      if(state.hits>0)state.hits--;
+      m.y=H+200;
+      sfx('medipac');
+      updateHud();
     }
   }
 
-  if(state.invuln<=0){
+  if(state.levelIndex===0&&state.invuln<=0&&!state.jumping){
     for(const c of state.creeks){
-      if(c.hit) continue;
-      const waterY=c.y-CREEK_H/2;
-      const leftWater={x:0,y:waterY,w:c.bridgeX-BRIDGE_W/2,h:CREEK_H};
-      const rightWater={x:c.bridgeX+BRIDGE_W/2,y:waterY,w:W-(c.bridgeX+BRIDGE_W/2),h:CREEK_H};
-      if(rectHit(jeep,leftWater)||rectHit(jeep,rightWater)){
-        c.hit=true;
-        state.hits++;
-        state.invuln=1.0;
-        state.flash=.25;
-        state.shake=.35;
-        sfx('hit');
-        if(state.hits>=MAX_HITS){state.mode='fail';sfx('fail');}
-        break;
-      }
+      if(c.hit)continue;
+      const riverH=riverDrawH(),bridge=bridgeDrawSize(),waterY=c.y-riverH/2;
+      const left={x:0,y:waterY,w:Math.max(0,c.bridgeX-bridge.w/2),h:riverH};
+      const rightX=c.bridgeX+bridge.w/2;
+      const right={x:rightX,y:waterY,w:Math.max(0,W-rightX),h:riverH};
+      if(rectHit(player,left)||rectHit(player,right)){c.hit=true;hitPlayer();break;}
     }
   }
-
-  if(state.invuln<=0){
-    for(const o of state.obstacles){
-      const box={x:o.x-o.w*.42,y:o.y-o.h*.42,w:o.w*.84,h:o.h*.84};
-      if(rectHit(jeep,box)){
-        state.hits++;
-        state.invuln=1.0;
-        state.flash=.25;
-        state.shake=.35;
-        sfx('hit');
-        // Hindernis entfernen, damit kein Mehrfachtreffer entsteht.
-        o.y=H+200;
-        if(state.hits>=MAX_HITS){
-          state.mode='fail';
-          sfx('fail');
-        }
-        break;
+  if(state.invuln<=0&&!state.jumping){
+    for(const o of state.obstacles){if(rectHit(player,obstacleRect(o))){o.y=H+200;hitPlayer();break;}}
+  }
+  if(state.mode==='play'&&state.invuln<=0&&state.nearMissCooldown<=0){
+    let near=nearestDistance(player,state.obstacles,obstacleRect);
+    if(state.levelIndex===0&&!state.jumping){
+      for(const c of state.creeks){
+        const riverH=riverDrawH(),bridge=bridgeDrawSize(),waterY=c.y-riverH/2;
+        const left={x:0,y:waterY,w:Math.max(0,c.bridgeX-bridge.w/2),h:riverH};
+        const rightX=c.bridgeX+bridge.w/2;
+        const right={x:rightX,y:waterY,w:Math.max(0,W-rightX),h:riverH};
+        near=Math.min(near,distanceBetweenRects(player,left),distanceBetweenRects(player,right));
       }
     }
+    if(near>0&&near<NEAR_MISS_DIST){state.nearMissUntil=now+230;state.nearMissCooldown=.45;}
   }
   updateHud();
 }
 
-function rectHit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
-
-function roundedRect(x,y,w,h,r){
-  ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
-  ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
-}
-
-function drawGround(){
-  ctx.fillStyle='#17341f';ctx.fillRect(0,0,W,H);
-  // Grünstreifen
-  for(let i=-1;i<8;i++){
-    const y=(i*96 + state.roadOffset*.55)%768-90;
-    ctx.fillStyle='rgba(64,104,45,.28)';
-    ctx.beginPath();ctx.ellipse(80,y,88,38,.2,0,Math.PI*2);ctx.fill();
-    ctx.beginPath();ctx.ellipse(W-70,y+42,100,42,-.15,0,Math.PI*2);ctx.fill();
-  }
-
-  // Straße
-  const roadGrad=ctx.createLinearGradient(ROAD.x,0,ROAD.x+ROAD.w,0);
-  roadGrad.addColorStop(0,'#735232');roadGrad.addColorStop(.08,'#9b7045');roadGrad.addColorStop(.5,'#b58a59');roadGrad.addColorStop(.92,'#9b7045');roadGrad.addColorStop(1,'#735232');
-  ctx.fillStyle=roadGrad;ctx.fillRect(ROAD.x,0,ROAD.w,H);
-
-  // Straßenränder
-  ctx.fillStyle='#5b452d';ctx.fillRect(ROAD.x,0,10,H);ctx.fillRect(ROAD.x+ROAD.w-10,0,10,H);
-
-  // Fahrspuren / Textur
-  ctx.globalAlpha=.24;
-  ctx.strokeStyle='#4c3928';ctx.lineWidth=4;
-  for(const x of [W/2-82,W/2+82]){
-    ctx.beginPath();
-    for(let y=-120;y<H+120;y+=120){
-      const yy=y+state.roadOffset;
-      ctx.moveTo(x-5,yy);ctx.lineTo(x+4,yy+58);
+function roundedRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function drawLand(){
+  const bg=SPRITES.bgLand01;
+  if(spriteReady(bg)){
+    const scale=W/bg.naturalWidth;
+    const drawW=W;
+    const drawH=bg.naturalHeight*scale;
+    // Exakt dieselbe Wegstrecke wie Items/Hindernisse: alles bewegt sich mit speed px/s nach unten.
+    const scroll=((state.distanceTravelled%drawH)+drawH)%drawH;
+    for(let y=scroll-drawH;y<H+drawH;y+=drawH){
+      ctx.drawImage(bg,0,y,drawW,drawH);
     }
+    return;
+  }
+  const ROAD={x:170,w:580};ctx.fillStyle='#17341f';ctx.fillRect(0,0,W,H);
+  for(let i=-1;i<8;i++){const y=(i*96+state.roadOffset*.55)%768-90;ctx.fillStyle='rgba(64,104,45,.28)';ctx.beginPath();ctx.ellipse(80,y,88,38,.2,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.ellipse(W-70,y+42,100,42,-.15,0,Math.PI*2);ctx.fill();}
+  const g=ctx.createLinearGradient(ROAD.x,0,ROAD.x+ROAD.w,0);g.addColorStop(0,'#735232');g.addColorStop(.08,'#9b7045');g.addColorStop(.5,'#b58a59');g.addColorStop(.92,'#9b7045');g.addColorStop(1,'#735232');ctx.fillStyle=g;ctx.fillRect(ROAD.x,0,ROAD.w,H);
+  ctx.fillStyle='#5b452d';ctx.fillRect(ROAD.x,0,10,H);ctx.fillRect(ROAD.x+ROAD.w-10,0,10,H);
+  ctx.globalAlpha=.24;ctx.strokeStyle='#4c3928';ctx.lineWidth=4;for(const x of [W/2-82,W/2+82]){ctx.beginPath();for(let y=-120;y<H+120;y+=120){const yy=y+state.roadOffset;ctx.moveTo(x-5,yy);ctx.lineTo(x+4,yy+58);}ctx.stroke();}ctx.globalAlpha=1;
+}
+function drawWater(){
+  const bg=SPRITES.bgWater02;
+  if(spriteReady(bg)){
+    const scale=W/bg.naturalWidth;
+    const drawW=W;
+    const drawH=bg.naturalHeight*scale;
+    const scroll=((state.distanceTravelled%drawH)+drawH)%drawH;
+    for(let y=scroll-drawH;y<H+drawH;y+=drawH){
+      ctx.drawImage(bg,0,y,drawW,drawH);
+    }
+    return;
+  }
+  const grad=ctx.createLinearGradient(0,0,0,H);grad.addColorStop(0,'#0b6f91');grad.addColorStop(1,'#083f68');ctx.fillStyle=grad;ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle='rgba(190,240,255,.28)';ctx.lineWidth=2;
+  for(let row=-2;row<11;row++)for(let col=-1;col<12;col++){
+    const y=(row*70+state.roadOffset*.72)%770-70,x=col*92+(row%2)*34;
+    ctx.beginPath();ctx.arc(x,y,34,Math.PI*.12,Math.PI*.88);ctx.stroke();
+  }
+  ctx.fillStyle='rgba(230,244,213,.08)';ctx.fillRect(0,0,38,H);ctx.fillRect(W-38,0,38,H);
+}
+function drawSky(){
+  const bg=SPRITES.bgSky03;
+  if(spriteReady(bg)){
+    const scale=W/bg.naturalWidth;
+    const drawW=W;
+    const drawH=bg.naturalHeight*scale;
+    const scroll=((state.distanceTravelled%drawH)+drawH)%drawH;
+    for(let y=scroll-drawH;y<H+drawH;y+=drawH){
+      ctx.drawImage(bg,0,y,drawW,drawH);
+    }
+    return;
+  }
+  const grad=ctx.createLinearGradient(0,0,0,H);grad.addColorStop(0,'#66c7f2');grad.addColorStop(1,'#9bdcf5');ctx.fillStyle=grad;ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='rgba(255,255,255,.20)';
+  for(let i=0;i<12;i++){
+    const x=(i*127+70)%W,y=(i*97+state.roadOffset*.20)%760-80;
+    ctx.beginPath();ctx.ellipse(x,y,46,18,0,0,Math.PI*2);ctx.fill();
+  }
+}
+function drawGround(){if(state.levelIndex===0)drawLand();else if(state.levelIndex===1)drawWater();else drawSky();}
+
+function drawDustPatches(now){
+  if(state.levelIndex!==0)return;
+  ctx.save();
+  for(const p of state.dustPatches){
+    const sway=Math.sin(now*.0018+p.phase)*10;
+    ctx.fillStyle='rgba(194,145,88,.16)';
+    ctx.beginPath();ctx.ellipse(p.x+p.w/2+sway,p.y,p.w*.50,p.h*.40,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='rgba(229,195,144,.10)';
+    ctx.beginPath();ctx.ellipse(p.x+p.w*.28+sway*0.8,p.y+6,p.w*.26,p.h*.22,0,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.ellipse(p.x+p.w*.72+sway*0.7,p.y-4,p.w*.24,p.h*.20,0,0,Math.PI*2);ctx.fill();
+  }
+  ctx.restore();
+}
+function drawWindGustFx(now){
+  if(state.levelIndex!==2||Math.abs(state.windForce)<1)return;
+  const dir=Math.sign(state.windForce)||1;
+  const strength=Math.min(1,Math.abs(state.windForce)/70);
+  ctx.save();
+  ctx.strokeStyle=`rgba(255,255,255,${0.10+strength*.14})`;
+  ctx.lineWidth=2;
+  for(let i=0;i<8;i++){
+    const y=80+i*70+Math.sin(now*.002+i)*12;
+    const x=dir>0?110+(i*85)%W:W-110-((i*85)%W);
+    ctx.beginPath();
+    ctx.moveTo(x-dir*42,y+7);
+    ctx.lineTo(x+dir*42,y-7);
     ctx.stroke();
   }
-  ctx.globalAlpha=1;
-
-  // Steine am Rand
-  for(let i=0;i<18;i++){
-    const y=(i*83+state.roadOffset*.8)%760-70;
-    const side=i%2===0?ROAD.x-26:ROAD.x+ROAD.w+26;
-    ctx.fillStyle=i%3===0?'#6f795d':'#52654d';
-    ctx.beginPath();ctx.arc(side+(i%4-1.5)*6,y,7+(i%3)*2,0,Math.PI*2);ctx.fill();
-  }
+  ctx.restore();
+}
+function drawNearMissFx(now){
+  if(now>=state.nearMissUntil)return;
+  ctx.save();
+  ctx.font='26px system-ui';
+  ctx.textAlign='center';
+  const x=state.jeepX+38*Math.sign(Math.sin(now*.02)||1), y=state.jeepY-38+Math.sin(now*.025)*4;
+  ctx.fillText('💨',x,y);
+  ctx.restore();
 }
 
 function drawCreek(c){
-  const y=c.y;
+  const y=c.y,riverH=riverDrawH(),bridge=bridgeDrawSize();
   ctx.save();
 
-  // Ufer – leicht unregelmäßig, damit der Bach nicht wie ein Rechteck wirkt.
-  ctx.fillStyle='#6f6748';
-  ctx.fillRect(0,y-CREEK_H/2-5,W,CREEK_H+10);
-  ctx.fillStyle='#326d82';
-  ctx.fillRect(0,y-CREEK_H/2,W,CREEK_H);
+  // River: fit to the canvas width and derive height from the sprite's
+  // native aspect ratio. No vertical squashing/stretching.
+  if(spriteReady(SPRITES.river)){
+    ctx.drawImage(SPRITES.river,0,y-riverH/2,W,riverH);
+  }else{
+    ctx.fillStyle='#326d82';ctx.fillRect(0,y-riverH/2,W,riverH);
+  }
 
-  // Wasserlinien.
-  ctx.strokeStyle='rgba(190,235,240,.45)';
-  ctx.lineWidth=2;
-  for(let x=-30;x<W+30;x+=72){
+  // Bridge scales proportionally with the now taller river.
+  if(spriteReady(SPRITES.bridge)){
+    ctx.drawImage(SPRITES.bridge,c.bridgeX-bridge.w/2,y-bridge.h/2,bridge.w,bridge.h);
+  }else{
+    ctx.fillStyle='#9b7045';
+    ctx.fillRect(c.bridgeX-bridge.w/2,y-bridge.h/2,bridge.w,bridge.h);
+  }
+  ctx.restore();
+}
+function drawCloud(o){
+  const img=SPRITES.clouds[o.variant];
+  if(spriteReady(img)){
+    ctx.drawImage(img,-o.w/2,-o.h/2,o.w,o.h);
+    return;
+  }
+  ctx.fillStyle='rgba(75,95,125,.94)';ctx.strokeStyle='rgba(40,55,80,.55)';ctx.lineWidth=3;
+  for(const [dx,dy,r] of [[-30,4,24],[-8,-10,30],[20,-4,27],[36,8,20],[4,12,34]]){ctx.beginPath();ctx.arc(dx,dy,r,0,Math.PI*2);ctx.fill();ctx.stroke();}
+}
+function drawBird(o){
+  const img=SPRITES.birds[o.variant];
+  if(spriteReady(img)){
+    ctx.drawImage(img,-o.w/2,-o.h/2,o.w,o.h);
+    return;
+  }
+  ctx.strokeStyle='#29333b';ctx.lineWidth=7;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(-28,4);ctx.quadraticCurveTo(-12,-15,0,0);ctx.quadraticCurveTo(12,-15,28,4);ctx.stroke();ctx.lineCap='butt';
+}
+function drawObstacle(o){
+  ctx.save();ctx.translate(o.x,o.y+(o.floatY||0));ctx.rotate(o.rot);
+  if(o.type==='cloud')drawCloud(o);
+  else if(o.type==='bird')drawBird(o);
+  else if(o.type==='buoy'){
+    const img=SPRITES.buoys[o.variant];
+    if(spriteReady(img))ctx.drawImage(img,-o.w/2,-o.h/2,o.w,o.h);
+    else{ctx.fillStyle='#f4c432';ctx.beginPath();ctx.arc(0,0,o.w*.30,0,Math.PI*2);ctx.fill();}
+  } else {
+    const img=o.type==='tree'?SPRITES.trees[o.variant]:SPRITES.rocks[o.variant];
+    if(spriteReady(img))ctx.drawImage(img,-o.w/2,-o.h/2,o.w,o.h);
+    else if(o.type==='tree'){ctx.fillStyle='#694327';roundedRect(-o.w/2,-o.h*.25,o.w,o.h*.5,10);ctx.fill();}
+    else{ctx.fillStyle='#59615a';ctx.beginPath();ctx.moveTo(-o.w*.45,o.h*.3);ctx.lineTo(-o.w*.3,-o.h*.3);ctx.lineTo(o.w*.1,-o.h*.45);ctx.lineTo(o.w*.42,-o.h*.12);ctx.lineTo(o.w*.35,o.h*.38);ctx.closePath();ctx.fill();}
+  }
+  ctx.restore();
+}
+function drawFuel(f){
+  ctx.save();ctx.translate(f.x,f.y);ctx.translate(0,Math.sin(f.spin)*2);
+  if(state.levelIndex!==2){ctx.fillStyle='rgba(0,0,0,.20)';ctx.beginPath();ctx.ellipse(0,f.h*.38,f.w*.38,f.h*.12,0,0,Math.PI*2);ctx.fill();}
+  if(spriteReady(SPRITES.fuel))ctx.drawImage(SPRITES.fuel,-f.w/2,-f.h/2,f.w,f.h);else{ctx.fillStyle='#d84532';roundedRect(-16,-20,32,40,5);ctx.fill();}
+  ctx.restore();
+}
+function drawMedipac(m){
+  ctx.save();
+  ctx.translate(m.x,m.y+Math.sin(m.bob)*2);
+  if(state.levelIndex!==2){ctx.fillStyle='rgba(0,0,0,.20)';ctx.beginPath();ctx.ellipse(0,m.h*.38,m.w*.36,m.h*.11,0,0,Math.PI*2);ctx.fill();}
+  if(spriteReady(SPRITES.medkit))ctx.drawImage(SPRITES.medkit,-m.w/2,-m.h/2,m.w,m.h);
+  else{
+    ctx.fillStyle='#c93434';ctx.strokeStyle='#6e1717';ctx.lineWidth=3;roundedRect(-20,-17,40,34,7);ctx.fill();ctx.stroke();
+    ctx.fillStyle='#f3f3ed';ctx.fillRect(-5,-11,10,22);ctx.fillRect(-11,-5,22,10);
+    ctx.fillStyle='#7d2020';roundedRect(-10,-23,20,8,4);ctx.fill();
+  }
+  ctx.restore();
+}
+function drawJeepDirt(now,cfg,arc,terrainX,terrainY,terrainRot,lift){
+  if(state.levelIndex!==0||state.mode!=='play'||arc>.08)return;
+  const t=now*.001;
+  ctx.save();
+  ctx.translate(state.jeepX+terrainX,state.jeepY-lift+terrainY);
+  ctx.rotate(state.jeepTilt+terrainRot);
+  const rearY=cfg.drawH*.36;
+  for(const side of [-1,1]){
+    for(let i=0;i<9;i++){
+      const phase=(t*2.05+i*.123+(side>0?.31:0))%1;
+      const spread=10+phase*24;
+      const x=side*(cfg.drawW*.34+spread)+Math.sin(t*9+i*2.3)*2.8;
+      const y=rearY+9+phase*38;
+      const r=4.9*(1-phase)+1.0;
+      const alpha=.38*(1-phase);
+      ctx.fillStyle=i%3===0?`rgba(116,76,39,${alpha})`:`rgba(151,101,53,${alpha})`;
+      ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+function drawJetskiSplash(now,cfg,arc,terrainX,terrainY,terrainRot,lift){
+  if(state.levelIndex!==1||state.mode!=='play'||arc>.12)return;
+  const t=now*.001;
+  ctx.save();
+  ctx.translate(state.jeepX+terrainX,state.jeepY-lift+terrainY);
+  ctx.rotate(state.jeepTilt+terrainRot);
+  const noseY=-cfg.drawH*.52;
+  const rearY=cfg.drawH*.47;
+  ctx.globalCompositeOperation='screen';
+
+  // vordere Bug-Spritzer
+  for(const side of [-1,1]){
+    for(let i=0;i<8;i++){
+      const phase=(t*2.45+i*.145+(side>0?.27:0))%1;
+      const x=side*(7+phase*24)+Math.sin(t*7+i)*1.6;
+      const y=noseY+phase*24;
+      const rx=10.5*(1-phase)+1.8, ry=4.2*(1-phase)+1.0;
+      ctx.fillStyle=`rgba(215,245,255,${0.38*(1-phase)})`;
+      ctx.beginPath();
+      ctx.ellipse(x,y,rx,ry,side*.42+phase*.22,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+  for(let i=0;i<8;i++){
+    const phase=(t*2.00+i*.155)%1;
+    const x=(Math.sin(t*6+i*1.3))*8;
+    const y=noseY-4+phase*15;
+    ctx.strokeStyle=`rgba(255,255,255,${0.46*(1-phase)})`;
+    ctx.lineWidth=2.2*(1-phase)+.4;
     ctx.beginPath();
-    ctx.moveTo(x,y-7);
-    ctx.quadraticCurveTo(x+18,y-12,x+36,y-7);
-    ctx.quadraticCurveTo(x+54,y-2,x+72,y-7);
+    ctx.moveTo(x-11,y+5);
+    ctx.quadraticCurveTo(x,y-7,x+11,y+5);
     ctx.stroke();
   }
 
-  // Holzbrücke. Sie liegt über dem Wasser und ist die sichere Passage.
-  const bx=c.bridgeX-BRIDGE_W/2;
-  const by=y-BRIDGE_H/2;
-  ctx.fillStyle='#4c3321';
-  ctx.fillRect(bx-6,by,BRIDGE_W+12,BRIDGE_H);
-  ctx.fillStyle='#9b7045';
-  ctx.fillRect(bx,by,BRIDGE_W,BRIDGE_H);
-  ctx.strokeStyle='#5c3c24';
-  ctx.lineWidth=2;
-  for(let x=bx+8;x<bx+BRIDGE_W;x+=14){
-    ctx.beginPath();ctx.moveTo(x,by+2);ctx.lineTo(x,by+BRIDGE_H-2);ctx.stroke();
+  // hintere Antriebs-/Wasserwirbel-Animation
+  for(let i=0;i<13;i++){
+    const phase=(t*2.85+i*.095)%1;
+    const x=Math.sin(t*8+i*1.9)*9;
+    const y=rearY+phase*42;
+    const rx=8.8*(1-phase)+2.0;
+    const ry=4.4*(1-phase)+1.1;
+    ctx.fillStyle=`rgba(200,240,255,${0.36*(1-phase)})`;
+    ctx.beginPath();
+    ctx.ellipse(x,y,rx,ry,0,0,Math.PI*2);
+    ctx.fill();
   }
-  ctx.strokeStyle='#c49a68';
-  ctx.lineWidth=3;
-  ctx.strokeRect(bx+2,by+2,BRIDGE_W-4,BRIDGE_H-4);
-  ctx.restore();
-}
-
-function drawObstacle(o){
-  ctx.save();ctx.translate(o.x,o.y);ctx.rotate(o.rot);
-  if(o.type==='rock'){
-    ctx.fillStyle='#59615a';ctx.strokeStyle='#2f3832';ctx.lineWidth=3;
-    ctx.beginPath();ctx.moveTo(-26,16);ctx.lineTo(-20,-15);ctx.lineTo(3,-25);ctx.lineTo(25,-8);ctx.lineTo(22,20);ctx.lineTo(-4,25);ctx.closePath();ctx.fill();ctx.stroke();
-    ctx.fillStyle='rgba(255,255,255,.12)';ctx.beginPath();ctx.ellipse(-7,-10,8,5,-.3,0,Math.PI*2);ctx.fill();
-  }else if(o.type==='log'){
-    ctx.fillStyle='#694327';ctx.strokeStyle='#382515';ctx.lineWidth=3;roundedRect(-46,-15,92,30,10);ctx.fill();ctx.stroke();
-    ctx.strokeStyle='#947052';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-26,-12);ctx.lineTo(-18,12);ctx.moveTo(4,-12);ctx.lineTo(11,12);ctx.stroke();
-  }else{
-    ctx.fillStyle='#294c2d';ctx.strokeStyle='#16321d';ctx.lineWidth=3;
-    for(const [x,y,r] of [[-16,5,20],[8,-7,22],[17,12,18],[-3,18,19]]){ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();ctx.stroke();}
+  for(const side of [-1,1]){
+    for(let i=0;i<6;i++){
+      const phase=(t*2.05+i*.18+(side>0?.18:0))%1;
+      const x=side*(7+phase*16);
+      const y=rearY+4+phase*34;
+      ctx.strokeStyle=`rgba(255,255,255,${0.40*(1-phase)})`;
+      ctx.lineWidth=2.2*(1-phase)+.4;
+      ctx.beginPath();
+      ctx.arc(x,y,5+phase*10,Math.PI*(side<0?0.04:0.54),Math.PI*(side<0?1.22:1.72),side<0);
+      ctx.stroke();
+    }
   }
   ctx.restore();
 }
-
-function drawFuel(f){
-  ctx.save();ctx.translate(f.x,f.y);
-  const bob=Math.sin(f.spin)*2;ctx.translate(0,bob);
-  ctx.fillStyle='rgba(0,0,0,.22)';ctx.beginPath();ctx.ellipse(0,23,23,8,0,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle='#e1b632';ctx.strokeStyle='#6e5412';ctx.lineWidth=3;roundedRect(-16,-20,32,40,5);ctx.fill();ctx.stroke();
-  ctx.fillStyle='#f4d354';roundedRect(-11,-15,22,30,3);ctx.fill();
-  ctx.fillStyle='#6e5412';ctx.fillRect(-4,-23,13,6);ctx.strokeRect(-4,-23,13,6);
-  ctx.strokeStyle='#6e5412';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(-8,-10);ctx.lineTo(8,10);ctx.moveTo(8,-10);ctx.lineTo(-8,10);ctx.stroke();
+function drawJetEffects(now,cfg,arc,terrainX,terrainY,terrainRot,lift){
+  if(state.levelIndex!==2)return;
+  const t=now*.001;
+  ctx.save();
+  ctx.translate(state.jeepX+terrainX,state.jeepY-lift+terrainY);
+  ctx.rotate(state.jeepTilt+terrainRot);
+  // Größerer Propeller vorne am Flugzeug: schneller transparenter Rotor-Blur.
+  const noseY=-cfg.drawH*.48;
+  const spin=Math.sin(t*46);
+  ctx.strokeStyle='rgba(230,240,250,.38)';
+  ctx.lineWidth=4;
+  ctx.beginPath();
+  ctx.ellipse(0,noseY,38,9,0,0,Math.PI*2);
+  ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,.30)';
+  ctx.lineWidth=2.4;
+  ctx.beginPath();
+  ctx.moveTo(-36,noseY+spin*1.5);
+  ctx.lineTo(36,noseY-spin*1.5);
+  ctx.moveTo(-24,noseY-8-spin*1.1);
+  ctx.lineTo(24,noseY+8+spin*1.1);
+  ctx.stroke();
+  // Größere Luftwirbel hinter dem Flugzeug.
+  if(state.mode==='play' && arc<.15){
+    for(const side of [-1,1]){
+      for(let i=0;i<5;i++){
+        const phase=(t*1.75+i*.21+(side>0?.2:0))%1;
+        const baseX=side*(cfg.drawW*.20 + phase*24);
+        const baseY=cfg.drawH*.18 + phase*40;
+        ctx.strokeStyle=`rgba(215,235,255,${0.30*(1-phase)})`;
+        ctx.lineWidth=2.0*(1-phase)+.45;
+        ctx.beginPath();
+        ctx.arc(baseX,baseY,5.5+phase*12,Math.PI*(side<0?0.10:0.60),Math.PI*(side<0?1.24:1.74),side<0);
+        ctx.stroke();
+      }
+    }
+  }
   ctx.restore();
 }
 
-function drawJeep(now){
-  const blink=state.invuln>0 && Math.floor(now/90)%2===0;
-  if(blink) return;
-  ctx.save();ctx.translate(state.jeepX,state.jeepY);ctx.rotate(state.jeepTilt);
-  // Schatten
-  ctx.fillStyle='rgba(0,0,0,.25)';ctx.beginPath();ctx.ellipse(0,10,35,49,0,0,Math.PI*2);ctx.fill();
-  // Reifen
-  ctx.fillStyle='#1b1b18';
-  for(const [x,y] of [[-34,-28],[34,-28],[-34,28],[34,28]]){roundedRect(x-7,y-14,14,28,5);ctx.fill();}
-  // Karosserie
-  ctx.fillStyle='#6b7440';ctx.strokeStyle='#2f351e';ctx.lineWidth=3;roundedRect(-30,-46,60,92,12);ctx.fill();ctx.stroke();
-  ctx.fillStyle='#394225';roundedRect(-24,-34,48,33,8);ctx.fill();
-  ctx.fillStyle='#1c2c2e';roundedRect(-19,-29,38,23,6);ctx.fill();
-  // Motorhaube
-  ctx.fillStyle='#78834a';roundedRect(-24,4,48,34,8);ctx.fill();
-  // Kühler / Stoßfänger
-  ctx.fillStyle='#252a22';roundedRect(-21,31,42,8,3);ctx.fill();
-  ctx.fillStyle='#d9c569';ctx.fillRect(-18,33,10,4);ctx.fillRect(8,33,10,4);
-  // Spiono-Kopf als provisorischer Fahrer
-  ctx.fillStyle='#3d6690';ctx.beginPath();ctx.arc(0,-12,10,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle='#765533';ctx.beginPath();ctx.ellipse(0,-20,14,5,0,0,Math.PI*2);ctx.fill();
-  ctx.fillRect(-7,-24,14,6);
+function drawStego(){
+  if(!state.stego||state.levelIndex!==0)return;
+  const s=state.stego;
+  ctx.save();
+  ctx.globalAlpha=.96;
+  if(spriteReady(SPRITES.stego))ctx.drawImage(SPRITES.stego,s.x-s.w/2,s.y-s.h/2,s.w,s.h);
   ctx.restore();
 }
+function drawStegoMessage(now){
+  if(state.levelIndex!==0||state.mode!=='play'||now>=state.stegoMessageUntil)return;
+  const boxW=610,boxH=36;
+  ctx.fillStyle='rgba(0,0,0,.62)';
+  ctx.fillRect(W/2-boxW/2,35,boxW,boxH);
+  ctx.fillStyle='#ffe59a';
+  ctx.font='bold 16px system-ui';
+  ctx.textAlign='center';
+  ctx.fillText('🦕 Gib Gummi, Spiono, Bleifuss und Vollgas!',W/2,59);
+  ctx.textAlign='left';
+}
+function drawTriceratops(){
+  if(!state.triceratops||state.levelIndex!==1)return;
+  const s=state.triceratops;
+  ctx.save();
+  ctx.globalAlpha=.96;
+  if(spriteReady(SPRITES.triceratops))ctx.drawImage(SPRITES.triceratops,s.x-s.w/2,s.y-s.h/2,s.w,s.h);
+  ctx.restore();
+}
+function drawTriceratopsMessage(now){
+  if(state.levelIndex!==1||state.mode!=='play'||now>=state.triceratopsMessageUntil)return;
+  const boxW=610,boxH=36;
+  ctx.fillStyle='rgba(0,0,0,.62)';
+  ctx.fillRect(W/2-boxW/2,35,boxW,boxH);
+  ctx.fillStyle='#ffe59a';
+  ctx.font='bold 16px system-ui';
+  ctx.textAlign='center';
+  ctx.fillText('🦏 Bist du etwa wasserscheu, Spiono? Reiß den Hahn auf!',W/2,59);
+  ctx.textAlign='left';
+}
+function drawVehicle(now){
+  const blink=state.invuln>0&&Math.floor(now/90)%2===0;if(blink)return;
+  const cfg=vehicleCfg(),key=levelCfg().vehicle,img=SPRITES[key];
+  const jp=state.jumping?Math.min(1,state.jumpElapsed/JUMP_DURATION):0,arc=state.jumping?Math.sin(jp*Math.PI):0,lift=arc*JUMP_HEIGHT;
+  const groundFactor=1-arc,terrainX=(Math.sin(now*.027)*.45+Math.sin(now*.061)*.20)*groundFactor,terrainY=(Math.sin(now*.019)*1.10+Math.sin(now*.047)*.50)*groundFactor,terrainRot=(Math.sin(now*.013)*.007+Math.sin(now*.037)*.003)*groundFactor;
+  if(key!=='jet'){
+    const shadowScale=key==='jeep'?1.20:1;
+    ctx.save();ctx.translate(state.jeepX,state.jeepY);ctx.fillStyle=`rgba(0,0,0,${.23-.10*arc})`;ctx.beginPath();ctx.ellipse(0,12,cfg.hitW*.60*shadowScale,cfg.hitH*.48*shadowScale,0,0,Math.PI*2);ctx.fill();ctx.restore();
+  }
+  if(key==='jeep')drawJeepDirt(now,cfg,arc,terrainX,terrainY,terrainRot,lift);
+  else if(key==='jetski')drawJetskiSplash(now,cfg,arc,terrainX,terrainY,terrainRot,lift);
+  ctx.save();ctx.translate(state.jeepX+terrainX,state.jeepY-lift+terrainY);ctx.rotate(state.jeepTilt+terrainRot);const scale=1+.045*arc;ctx.scale(scale,scale);
+  if(spriteReady(img))ctx.drawImage(img,-cfg.drawW/2,-cfg.drawH/2,cfg.drawW,cfg.drawH);
+  else{ctx.fillStyle=key==='jet'?'#d43b31':key==='jetski'?'#f2d238':'#6b7440';roundedRect(-cfg.drawW*.32,-cfg.drawH*.42,cfg.drawW*.64,cfg.drawH*.84,12);ctx.fill();}
+  ctx.restore();
+  if(key==='jet')drawJetEffects(now,cfg,arc,terrainX,terrainY,terrainRot,lift);
+
+  if(state.mode==='levelExit'){
+    // Derselbe Geschwindigkeitseffekt wie bei der Beere in „Flucht“.
+    ctx.save();
+    ctx.font='30px system-ui';
+    ctx.textAlign='center';
+    const puffY=state.jeepY+cfg.drawH*.58+10+Math.sin(now*.018)*4;
+    ctx.fillText('💨',state.jeepX,puffY);
+    ctx.restore();
+  }
+}
+function tryJump(){if(state.mode!=='play'||state.jumping||state.fuel<JUMP_FUEL_COST)return;state.fuel=Math.max(0,state.fuel-JUMP_FUEL_COST);state.jumping=true;state.jumpElapsed=0;sfx('jump');updateHud();}
 
 function drawOverlay(){
   if(state.mode==='start'){
-    ctx.fillStyle='rgba(5,10,8,.52)';ctx.fillRect(0,0,W,H);
-    ctx.fillStyle='#f3d35c';ctx.textAlign='center';ctx.font='bold 34px system-ui';ctx.fillText('SPIONOS RASANTE RALLYE',W/2,238);
-    ctx.fillStyle='#eef7f0';ctx.font='18px system-ui';ctx.fillText('Weiche den Hindernissen aus und sammle Fuel.',W/2,276);
-    ctx.font='bold 16px system-ui';ctx.fillStyle='#f3d35c';ctx.fillText('Leertaste zum Start',W/2,326);
+    ctx.fillStyle='rgba(0,0,0,.58)';ctx.fillRect(W/2-190,H-94,380,52);ctx.textAlign='center';ctx.font='bold 24px system-ui';ctx.fillStyle='#f3d35c';ctx.fillText('Leertaste zum Start',W/2,H-60);ctx.textAlign='left';
   }else if(state.mode==='countdown'){
-    ctx.fillStyle='rgba(5,10,8,.30)';ctx.fillRect(0,0,W,H);
-    ctx.textAlign='center';ctx.font='bold 76px system-ui';ctx.fillStyle='#f3d35c';ctx.shadowBlur=20;ctx.shadowColor='#f3d35c';ctx.fillText(String(state.countdown),W/2,H/2+26);ctx.shadowBlur=0;
+    ctx.fillStyle='rgba(5,10,8,.25)';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.font='bold 76px system-ui';ctx.fillStyle='#f3d35c';ctx.fillText(String(state.countdown),W/2,H/2+26);ctx.textAlign='left';
   }else if(state.mode==='paused'){
-    ctx.fillStyle='rgba(5,10,8,.48)';ctx.fillRect(0,0,W,H);
-    ctx.textAlign='center';ctx.font='bold 38px system-ui';ctx.fillStyle='#f3d35c';ctx.fillText('PAUSE',W/2,H/2);
-  }else if(state.mode==='win'){
-    ctx.fillStyle='rgba(5,10,8,.58)';ctx.fillRect(0,0,W,H);
-    ctx.textAlign='center';ctx.fillStyle='#f3d35c';ctx.font='bold 34px system-ui';ctx.fillText('ZIEL ERREICHT!',W/2,246);
-    ctx.fillStyle='#eef7f0';ctx.font='18px system-ui';ctx.fillText(`Treffer: ${state.hits}/${MAX_HITS}   •   Fuel: ${state.fuelCollected}/${FUEL_ITEMS_TOTAL}`,W/2,286);
-    ctx.font='bold 15px system-ui';ctx.fillStyle='#f3d35c';ctx.fillText('Leertaste für einen neuen Versuch',W/2,330);
-  }else if(state.mode==='fuelFail'){
-    ctx.fillStyle='rgba(5,10,8,.64)';ctx.fillRect(0,0,W,H);
-    ctx.textAlign='center';ctx.fillStyle='#ffcf57';ctx.font='bold 38px system-ui';ctx.fillText('TANK LEER!',W/2,246);
-    ctx.fillStyle='#eef7f0';ctx.font='18px system-ui';ctx.fillText(`Fuel eingesammelt: ${state.fuelCollected}/${FUEL_ITEMS_TOTAL}`,W/2,286);
-    ctx.font='bold 15px system-ui';ctx.fillStyle='#f3d35c';ctx.fillText('Leertaste für einen neuen Versuch',W/2,330);
-  }else if(state.mode==='fail'){
-    ctx.fillStyle='rgba(5,10,8,.64)';ctx.fillRect(0,0,W,H);
-    ctx.textAlign='center';ctx.fillStyle='#ff7777';ctx.font='bold 38px system-ui';ctx.fillText('GAME OVER',W/2,246);
-    ctx.fillStyle='#eef7f0';ctx.font='18px system-ui';ctx.fillText('Drei Treffer – der Jeep ist raus.',W/2,286);
-    ctx.font='bold 15px system-ui';ctx.fillStyle='#f3d35c';ctx.fillText('Leertaste für einen neuen Versuch',W/2,330);
+    ctx.fillStyle='rgba(5,10,8,.48)';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.font='bold 38px system-ui';ctx.fillStyle='#f3d35c';ctx.fillText('PAUSE',W/2,H/2);ctx.textAlign='left';
+  }else if(['win','fuelFail','fail'].includes(state.mode)){
+    ctx.fillStyle='rgba(5,10,8,.50)';ctx.fillRect(0,0,W,H);const isWin=state.mode==='win',boxH=138,boxY=H-boxH-28;ctx.fillStyle='rgba(0,0,0,.58)';ctx.fillRect(W/2-330,boxY,660,boxH);ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 34px system-ui';ctx.fillText(isWin?'ALLE 3 LEVEL GESCHAFFT!':state.mode==='fuelFail'?'TANK LEER!':'GECRASHED!',W/2,boxY+38);ctx.font='20px system-ui';ctx.fillStyle=isWin?'#f3d35c':'#ffaaaa';ctx.fillText(isWin?'Spiono hat die Rallye geschafft.':state.mode==='fuelFail'?'Spiono bleibt ohne Fuel liegen.':'Spiono ist auf der Strecke geblieben.',W/2,boxY+74);ctx.font='16px system-ui';ctx.fillStyle='#ddd';ctx.fillText('Leertaste für einen neuen Versuch',W/2,boxY+108);ctx.textAlign='left';
   }
 }
-
 function draw(now){
-  ctx.save();
-  if(state.shake>0){
-    const m=6*(state.shake/.35);ctx.translate((Math.random()-.5)*m,(Math.random()-.5)*m);
+  if(state.mode==='start'&&spriteReady(SPRITES.startScreen)){
+    ctx.clearRect(0,0,W,H);
+    ctx.drawImage(SPRITES.startScreen,0,0,W,H);
+    drawOverlay();
+    return;
   }
-  drawGround();
-  for(const c of state.creeks) drawCreek(c);
-  for(const o of state.obstacles) drawObstacle(o);
-  for(const f of state.fuelItems) drawFuel(f);
-  drawJeep(now);
-  ctx.restore();
-  if(state.flash>0){ctx.fillStyle=`rgba(255,70,70,${Math.min(.28,state.flash)})`;ctx.fillRect(0,0,W,H);}
-  drawOverlay();
+  ctx.save();if(state.shake>0){const m=6*(state.shake/.35);ctx.translate((Math.random()-.5)*m,(Math.random()-.5)*m);}drawGround();drawDustPatches(now);drawWindGustFx(now);drawStego();drawTriceratops();for(const c of state.creeks)drawCreek(c);for(const o of state.obstacles)drawObstacle(o);for(const f of state.fuelItems)drawFuel(f);for(const m of state.medipacItems)drawMedipac(m);drawVehicle(now);ctx.restore();if(state.flash>0){ctx.fillStyle=`rgba(255,70,70,${Math.min(.28,state.flash)})`;ctx.fillRect(0,0,W,H);}drawNearMissFx(now);drawStegoMessage(now);drawTriceratopsMessage(now);drawOverlay();
 }
-
-function loop(now){
-  const dt=Math.min(.035,(now-last)/1000);last=now;
-  update(dt,now);draw(now);requestAnimationFrame(loop);
-}
-requestAnimationFrame(loop);
+function loop(now){const dt=Math.min(.035,(now-last)/1000);last=now;update(dt,now);draw(now);requestAnimationFrame(loop);}requestAnimationFrame(loop);
 
 window.addEventListener('keydown',e=>{
-  if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code)) e.preventDefault();
-  if(e.code==='ArrowLeft'||e.code==='KeyA') keys.left=true;
-  if(e.code==='ArrowRight'||e.code==='KeyD') keys.right=true;
-  if(e.code==='ArrowUp'||e.code==='KeyW') keys.up=true;
-  if(e.code==='ArrowDown'||e.code==='KeyS') keys.down=true;
-  if(e.code==='Space') startCountdown();
-  if(e.code==='KeyP'){
-    if(state.mode==='play') state.mode='paused';
-    else if(state.mode==='paused') state.mode='play';
-  }
-  if(e.code==='KeyM'&&!e.repeat){
-    soundMuted=!soundMuted;
-    if(audioCtx&&soundMuted) audioCtx.suspend();
-    else if(audioCtx&&!soundMuted) audioCtx.resume();
-  }
+  if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code))e.preventDefault();
+  if(e.code==='ArrowLeft'||e.code==='KeyA')keys.left=true;if(e.code==='ArrowRight'||e.code==='KeyD')keys.right=true;if(e.code==='ArrowUp'||e.code==='KeyW')keys.up=true;if(e.code==='ArrowDown'||e.code==='KeyS')keys.down=true;
+  if(e.code==='Space'&&!e.repeat){if(state.mode==='play')tryJump();else if(state.mode==='start'||['win','fail','fuelFail'].includes(state.mode))startCountdown();}
+  if(e.code==='KeyP'){if(state.mode==='play')state.mode='paused';else if(state.mode==='paused')state.mode='play';}
+  if(e.code==='KeyM'&&!e.repeat){soundMuted=!soundMuted;if(audioCtx&&soundMuted)audioCtx.suspend();else if(audioCtx&&!soundMuted)audioCtx.resume();}
+  if(e.code==='KeyF'&&!e.repeat&&['play','paused','countdown'].includes(state.mode)){state.fuel=FUEL_MAX;updateHud();}
+  // TEST: 1/2/3 springt direkt zum jeweiligen Level, nicht in der Legende.
+  if(!e.repeat&&['Digit1','Digit2','Digit3'].includes(e.code)){const idx=Number(e.code.slice(-1))-1;initLevel(idx,'play');}
 });
-window.addEventListener('keyup',e=>{
-  if(e.code==='ArrowLeft'||e.code==='KeyA') keys.left=false;
-  if(e.code==='ArrowRight'||e.code==='KeyD') keys.right=false;
-  if(e.code==='ArrowUp'||e.code==='KeyW') keys.up=false;
-  if(e.code==='ArrowDown'||e.code==='KeyS') keys.down=false;
-});
+window.addEventListener('keyup',e=>{if(e.code==='ArrowLeft'||e.code==='KeyA')keys.left=false;if(e.code==='ArrowRight'||e.code==='KeyD')keys.right=false;if(e.code==='ArrowUp'||e.code==='KeyW')keys.up=false;if(e.code==='ArrowDown'||e.code==='KeyS')keys.down=false;});
 restartBtn.addEventListener('click',reset);
 </script>
 </body>
