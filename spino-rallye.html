@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spionosaurus – Spionos rasante Rallye</title>
+<title>Spionosaurus – Spionos rasante Raser-Rallye</title>
 <style>
   *{box-sizing:border-box}
   body{
@@ -34,7 +34,7 @@
   }
   .item .state{font-size:12px;opacity:.78}
   .fuel-wrap{display:flex;align-items:center;gap:7px}
-  .fuel-gauge{display:block;width:150px;min-width:150px;height:12px;border:1px solid #76906f;border-radius:6px;overflow:hidden;background:#08120d}
+  .fuel-gauge{display:block;width:225px;min-width:225px;height:12px;border:1px solid #76906f;border-radius:6px;overflow:hidden;background:#08120d}
   .fuel-fill{display:block;height:100%;width:100%;background:#f3d35c;transform-origin:left center;transform:scaleX(1)}
   button{border:0;border-radius:10px;padding:8px 13px;font-weight:800;background:#f3d35c;cursor:pointer}
   canvas{display:block;width:100%;height:auto;border:2px solid #315c45;border-radius:12px;background:#10231b}
@@ -47,7 +47,7 @@
 <div class="wrap">
   <div class="title-line">
     <img class="title-head spino-head" src="spino-rallye-assets/spino_head.webp" alt="">
-    <h1>Spionosaurus – Spionos rasante Rallye</h1>
+    <h1>Spionosaurus – Spionos rasante Raser-Rallye</h1>
     <img class="title-head greif-head" src="spino-rallye-assets/greif_head.webp" alt="">
   </div>
   <div class="bar">
@@ -66,6 +66,7 @@
   </div>
 </div>
 <script>
+// v31: Feintuning 17.09.2026 – Raser-Rallye, Umwelt, Ufer/Krokodile, Wind, Muster, Texte
 const canvas=document.getElementById('game');
 const ctx=canvas.getContext('2d');
 const restartBtn=document.getElementById('restart');
@@ -122,9 +123,28 @@ let state;
 
 function loadSprite(src){const img=new Image();img.src=src;return img;}
 const SPRITES={
-  fuel:loadSprite('spino-rallye-assets/sprite_fuel.png'),
-  medkit:loadSprite('spino-rallye-assets/sprite_medkit.png'),
+  fuels:[
+    loadSprite('spino-rallye-assets/sprite_fuel1.png'),
+    loadSprite('spino-rallye-assets/sprite_fuel2.png'),
+    loadSprite('spino-rallye-assets/sprite_fuel3.png')
+  ],
+  medkits:[
+    loadSprite('spino-rallye-assets/sprite_medkit1.png'),
+    loadSprite('spino-rallye-assets/sprite_medkit2.png'),
+    loadSprite('spino-rallye-assets/sprite_medkit3.png')
+  ],
   startScreen:loadSprite('spino-rallye-assets/spino_start_screen.png'),
+  winScreen:loadSprite('spino-rallye-assets/spino_win_screen.png'),
+  failScreens:[
+    loadSprite('spino-rallye-assets/spino_fail_screen1.png'),
+    loadSprite('spino-rallye-assets/spino_fail_screen2.png'),
+    loadSprite('spino-rallye-assets/spino_fail_screen3.png')
+  ],
+  wildboars:[
+    loadSprite('spino-rallye-assets/sprite_boar1.png'),
+    loadSprite('spino-rallye-assets/sprite_boar2.png')
+  ],
+  wind:loadSprite('spino-rallye-assets/sprite_wind.png'),
   stego:loadSprite('spino-rallye-assets/sprite_stego.png'),
   triceratops:loadSprite('spino-rallye-assets/sprite_triceratops.png'),
   jeep:loadSprite('spino-rallye-assets/sprite_spiono_jeep.png'),
@@ -135,6 +155,8 @@ const SPRITES={
   bgSky03:loadSprite('spino-rallye-assets/backround_03.png'),
   river:loadSprite('spino-rallye-assets/sprite_river.png'),
   bridge:loadSprite('spino-rallye-assets/sprite_bridge.png'),
+  crocodile:loadSprite('spino-rallye-assets/sprite_crocodile.png'),
+  kite:loadSprite('spino-rallye-assets/sprite_kite.png'),
   clouds:[
     loadSprite('spino-rallye-assets/sprite_cloud1.png'),
     loadSprite('spino-rallye-assets/sprite_cloud2.png'),
@@ -178,8 +200,29 @@ const RIVER_FALLBACK_H=298;
 const BRIDGE_HEIGHT_FACTOR=1.08;
 const LOW_FUEL_RATIO=.20;
 const NEAR_MISS_DIST=14;
-const DUST_PATCH_CONTROL=.88;
+const DUST_PATCH_CONTROL=.68;
+const CROCODILE_W=138,CROCODILE_H=82,CROCODILE_HIT_W=118,CROCODILE_HIT_H=44;
+const CROCODILE_BANK_X=125;
+const RIVER_LEADING_COLLISION_INSET=34;
+const KITE_W=110.4,KITE_H=129.6,KITE_HIT_W=74.4,KITE_HIT_H=103.2;
+const WILDBOAR_W=104,WILDBOAR_H=64,WILDBOAR_HIT_W=84,WILDBOAR_HIT_H=42;
+const WILDBOAR_LANES=[160,235,310,385,460];
+
 function spriteReady(img){return img&&img.complete&&img.naturalWidth>0;}
+function fitByHeight(img,targetH,fallbackW=targetH){
+  if(!spriteReady(img))return{w:fallbackW,h:targetH};
+  return{w:targetH*(img.naturalWidth/img.naturalHeight),h:targetH};
+}
+function fuelDrawSize(){
+  const img=SPRITES.fuels[state.levelIndex]||SPRITES.fuels[0];
+  const scale=state.levelIndex===2?1.5:1;
+  return fitByHeight(img,FUEL_H*scale,FUEL_W*scale);
+}
+function medipacDrawSize(){
+  const img=SPRITES.medkits[state.levelIndex]||SPRITES.medkits[0];
+  const scale=state.levelIndex===2?1.5:1;
+  return fitByHeight(img,MEDIPAC_H*scale,MEDIPAC_W*scale);
+}
 function riverDrawH(){
   const img=SPRITES.river;
   return (spriteReady(img)?W*(img.naturalHeight/img.naturalWidth):RIVER_FALLBACK_H)*0.60;
@@ -232,21 +275,32 @@ function makeMedipacSchedule(){
 }
 function makeDustPatches(){
   return [
-    {x:262,w:294,h:84,y:-340,phase:0.4},
-    {x:320,w:276,h:78,y:-1680,phase:1.8},
-    {x:236,w:318,h:86,y:-2980,phase:2.9}
+    {x:236,w:350,h:106,y:-300,phase:0.4},
+    {x:304,w:332,h:100,y:-1510,phase:1.8},
+    {x:214,w:372,h:110,y:-2720,phase:2.9},
+    {x:286,w:340,h:102,y:-3910,phase:4.1}
   ];
 }
 function makeWindGusts(){
   const gusts=[];
-  let t=8.5+Math.random()*1.8;
-  for(let i=0;i<3;i++){
-    const dur=1.6+Math.random()*1.0;
-    const force=(Math.random()<.5?-1:1)*(44+Math.random()*24);
+  let t=5.8+Math.random()*1.6;
+  for(let i=0;i<5;i++){
+    const dur=1.9+Math.random()*1.0;
+    const force=(Math.random()<.5?-1:1)*(82+Math.random()*38);
     gusts.push({start:t,dur,force});
-    t+=8.5+Math.random()*4.0;
+    t+=6.2+Math.random()*2.5;
   }
   return gusts;
+}
+function makeCrossingSchedule(count,start=6,end=48){
+  const arr=[];
+  const span=(end-start)/count;
+  for(let i=0;i<count;i++){
+    const center=start+span*(i+.5);
+    const jitter=span*.26;
+    arr.push({spawnAt:Math.max(1.2,center+(Math.random()*2-1)*jitter),spawned:false});
+  }
+  return arr;
 }
 function vehicleCfg(){return VEHICLES[LEVELS[state.levelIndex].vehicle];}
 function levelCfg(){return LEVELS[state.levelIndex];}
@@ -260,6 +314,7 @@ function initLevel(levelIndex,mode='start'){
     elapsed:0,roadOffset:0,jeepX:W/2,jeepY:H-120,jeepTilt:0,
     jumping:false,jumpElapsed:0,sideEdgeContact:false,steerX:0,
     hits:0,invuln:0,obstacles:[],fuelItems:[],medipacItems:[],creeks:[],fuel:FUEL_MAX,fuelCollected:0,
+    crocodiles:[],kites:[],wildboars:[],crocSchedule:[],kiteSchedule:[],wildboarSchedule:[],
     fuelSchedule:[],medipacSchedule:null,creekSchedule:[],spawnDistance:120,distanceTravelled:0,shake:0,flash:0,
     dustPatches:[],windGusts:[],windForce:0,
     stego:null,stegoSpawned:false,stegoMessageUntil:0,
@@ -270,8 +325,20 @@ function initLevel(levelIndex,mode='start'){
   state.fuelSchedule=makeFuelSchedule();
   state.medipacSchedule=makeMedipacSchedule();
   state.creekSchedule=makeCreekSchedule();
-  if(keepLevel===0)state.dustPatches=makeDustPatches();
-  if(keepLevel===2)state.windGusts=makeWindGusts();
+  if(keepLevel===0){
+    state.wildboarSchedule=[
+      {spawnAt:8.5,spawned:false,fromLeft:true,y:210},
+      {spawnAt:24.0,spawned:false,fromLeft:false,y:330},
+      {spawnAt:39.0,spawned:false,fromLeft:true,y:455}
+    ];
+  }
+  if(keepLevel===1){
+    state.crocSchedule=makeCrossingSchedule(5,6,43);
+    // Von den fünf Krokodilen queren zwei bewusst im unteren Bildbereich.
+    const lowerSlots=[1,3];
+    state.crocSchedule.forEach((c,i)=>c.lowerCrossing=lowerSlots.includes(i));
+  }
+  if(keepLevel===2){state.windGusts=makeWindGusts();state.kiteSchedule=makeCrossingSchedule(5,8,50);}
   keys.left=keys.right=keys.up=keys.down=false;
   updateHud();
 }
@@ -317,10 +384,22 @@ function beginLevelExit(){
 
 function rectHit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y;}
 function paddedRect(r,p){return{x:r.x-p,y:r.y-p,w:r.w+p*2,h:r.h+p*2};}
-function obstacleRect(o){return{x:o.x-o.hitW/2,y:o.y-o.hitH/2,w:o.hitW,h:o.hitH};}
-function fuelRect(f){return{x:f.x-f.w*.40,y:f.y-f.h*.42,w:f.w*.80,h:f.h*.84};}
-function medipacRect(m){return{x:m.x-m.w*.42,y:m.y-m.h*.42,w:m.w*.84,h:m.h*.84};}
+function obstacleRect(o){return{x:o.x-o.hitW/2,y:(o.y+(o.floatY||0))-o.hitH/2,w:o.hitW,h:o.hitH};}
+function crocodileRect(c){return{x:c.x-CROCODILE_HIT_W/2,y:c.y-CROCODILE_HIT_H/2,w:CROCODILE_HIT_W,h:CROCODILE_HIT_H};}
+function kiteRect(k){return{x:k.x-KITE_HIT_W/2,y:k.y-KITE_HIT_H/2,w:KITE_HIT_W,h:KITE_HIT_H};}
+function wildboarRect(b){return{x:b.x-WILDBOAR_HIT_W/2,y:b.y-WILDBOAR_HIT_H/2,w:WILDBOAR_HIT_W,h:WILDBOAR_HIT_H};}
+function fuelRect(f){const s=fuelDrawSize();return{x:f.x-s.w*.40,y:f.y-s.h*.42,w:s.w*.80,h:s.h*.84};}
+function medipacRect(m){const s=medipacDrawSize();return{x:m.x-s.w*.42,y:m.y-s.h*.42,w:s.w*.84,h:s.h*.84};}
 function creekRect(c){const h=riverDrawH();return{x:0,y:c.y-h/2,w:W,h};}
+function creekWaterHitRects(c){
+  const riverH=riverDrawH(),bridge=bridgeDrawSize(),waterY=c.y-riverH/2;
+  // Die zuerst heranlaufende (untere) Wasserkante reagiert etwas später als die sichtbare Grafik.
+  const hitH=Math.max(1,riverH-RIVER_LEADING_COLLISION_INSET);
+  const left={x:0,y:waterY,w:Math.max(0,c.bridgeX-bridge.w/2),h:hitH};
+  const rightX=c.bridgeX+bridge.w/2;
+  const right={x:rightX,y:waterY,w:Math.max(0,W-rightX),h:hitH};
+  return [left,right];
+}
 function overlapsAny(rect,items,rectFn,pad=0){return items.some(item=>rectHit(paddedRect(rect,pad),rectFn(item)));}
 function distanceBetweenRects(a,b){
   const dx=Math.max(0,Math.max(a.x-(b.x+b.w),b.x-(a.x+a.w)));
@@ -364,11 +443,20 @@ function canPlaceObstacle(spec,x,y,pad=14){
 function pushObstacle(spec,x,y,rot){state.obstacles.push({type:spec.type,variant:spec.variant,x,y,baseX:x,baseRot:rot,w:spec.drawSize,h:spec.drawSize,hitW:spec.hit.w,hitH:spec.hit.h,rot,animPhase:Math.random()*Math.PI*2,floatY:0});}
 function spawnSingleObstacle(y=-90,bias=null){
   const cfg=levelCfg();
-  for(let attempt=0;attempt<28;attempt++){
-    const spec=randomObstacleSpec(),margin=Math.max(spec.hit.w/2+14,55);
-    let x=cfg.xMin+margin+Math.random()*Math.max(1,(cfg.xMax-cfg.xMin)-margin*2);
-    if(bias==='left')x=cfg.xMin+margin+Math.random()*((cfg.xMax-cfg.xMin)*.34);
-    if(bias==='right')x=cfg.xMax-margin-Math.random()*((cfg.xMax-cfg.xMin)*.34);
+  for(let attempt=0;attempt<32;attempt++){
+    const spec=randomObstacleSpec();
+    const edgePad=state.levelIndex===2?8:6;
+    const margin=spec.hit.w/2+edgePad;
+    const usableW=Math.max(1,(cfg.xMax-cfg.xMin)-margin*2);
+    let x=cfg.xMin+margin+Math.random()*usableW;
+    if(bias==='left')x=cfg.xMin+margin+Math.random()*Math.max(18,(cfg.xMax-cfg.xMin)*.24);
+    if(bias==='right')x=cfg.xMax-margin-Math.random()*Math.max(18,(cfg.xMax-cfg.xMin)*.24);
+    if(!bias && state.levelIndex===1){
+      // Wasserlevel etwas gleichmäßiger, mit leichter Betonung der Mitte.
+      const center=(cfg.xMin+cfg.xMax)/2;
+      const t=(Math.random()+Math.random())/2; // Dreiecksverteilung
+      x=center+(t-.5)*usableW*.78;
+    }
     if(!canPlaceObstacle(spec,x,y,14))continue;
     const rot=spec.type==='tree'?(Math.random()-.5)*.28:spec.type==='rock'?(Math.random()-.5)*.40:spec.type==='buoy'?(Math.random()-.5)*.12:(Math.random()-.5)*.10;
     pushObstacle(spec,x,y,rot);return true;
@@ -402,15 +490,72 @@ function spawnOffsetPairPattern(){
   const ok2=ok1&&spawnSingleObstacle(-182,Math.random()<.5?'left':'right');
   if(!(ok1&&ok2)){state.obstacles.length=startLen;return false;}return true;
 }
+function spawnEdgePairPattern(){
+  const startLen=state.obstacles.length;
+  const y1=-86,y2=-188;
+  const ok1=spawnSingleObstacle(y1,'left');
+  const ok2=ok1&&spawnSingleObstacle(y2,'right');
+  if(!(ok1&&ok2)){state.obstacles.length=startLen;return false;}
+  return true;
+}
+function spawnTriplePattern(){
+  const startLen=state.obstacles.length;
+  const firstLeft=Math.random()<.5;
+  const ok1=spawnSingleObstacle(-84,firstLeft?'left':'right');
+  const ok2=ok1&&spawnSingleObstacle(-184,null);
+  const ok3=ok2&&spawnSingleObstacle(-294,firstLeft?'right':'left');
+  if(!(ok1&&ok2&&ok3)){state.obstacles.length=startLen;return false;}
+  return true;
+}
+function spawnCenterObstacle(y=-88){
+  const startLen=state.obstacles.length,cfg=levelCfg();
+  for(let attempt=0;attempt<28;attempt++){
+    const spec=randomObstacleSpec();
+    const center=(cfg.xMin+cfg.xMax)/2;
+    const spread=(cfg.xMax-cfg.xMin)*.18;
+    const x=center+(Math.random()*2-1)*spread;
+    if(!canPlaceObstacle(spec,x,y,14))continue;
+    const rot=spec.type==='rock'?(Math.random()-.5)*.40:spec.type==='buoy'?(Math.random()-.5)*.12:(Math.random()-.5)*.16;
+    pushObstacle(spec,x,y,rot);return true;
+  }
+  state.obstacles.length=startLen;return false;
+}
+function spawnWaterVariedPair(){
+  const startLen=state.obstacles.length;
+  const firstBias=['left',null,'right'][Math.floor(Math.random()*3)];
+  const choices=firstBias==='left'?[null,'right','right']:firstBias==='right'?['left','left',null]:['left','right',null];
+  const secondBias=choices[Math.floor(Math.random()*choices.length)];
+  const y1=-82-Math.random()*34,separation=72+Math.random()*120;
+  const ok1=spawnSingleObstacle(y1,firstBias);
+  const ok2=ok1&&spawnSingleObstacle(y1-separation,secondBias);
+  if(!(ok1&&ok2)){state.obstacles.length=startLen;return false;}return true;
+}
+function spawnWaterVariedTriple(){
+  const startLen=state.obstacles.length;
+  const layouts=[['left',null,'right'],[null,'left',null],['right',null,'left'],[null,'right','left']];
+  const layout=layouts[Math.floor(Math.random()*layouts.length)];
+  const y1=-82-Math.random()*24,d1=70+Math.random()*76,d2=78+Math.random()*94;
+  const ok1=spawnSingleObstacle(y1,layout[0]);
+  const ok2=ok1&&spawnSingleObstacle(y1-d1,layout[1]);
+  const ok3=ok2&&spawnSingleObstacle(y1-d1-d2,layout[2]);
+  if(!(ok1&&ok2&&ok3)){state.obstacles.length=startLen;return false;}return true;
+}
 function spawnObstaclePattern(){
   const p=progress01(),r=Math.random();let fns;
   if(state.levelIndex===0){
-    fns=p>.58&&r<.30?[spawnGatePattern,spawnSlalomPattern,spawnOffsetPairPattern,spawnSingleObstacle]:
-        p>.28&&r<.68?[spawnSlalomPattern,spawnOffsetPairPattern,spawnGatePattern,spawnSingleObstacle]:[spawnOffsetPairPattern,spawnSingleObstacle,spawnGatePattern];
+    fns=p>.58&&r<.30?[spawnGatePattern,spawnSlalomPattern,spawnEdgePairPattern,spawnOffsetPairPattern,spawnSingleObstacle]:
+        p>.28&&r<.68?[spawnSlalomPattern,spawnEdgePairPattern,spawnOffsetPairPattern,spawnGatePattern,spawnSingleObstacle]:[spawnEdgePairPattern,spawnOffsetPairPattern,spawnSingleObstacle,spawnGatePattern];
   }else if(state.levelIndex===1){
-    fns=p>.45?[spawnSlalomPattern,spawnGatePattern,spawnOffsetPairPattern,spawnSingleObstacle]:[spawnOffsetPairPattern,spawnSingleObstacle,spawnGatePattern];
+    // Anfang: bewusst auch Mitte. Später: wechselnde Einzel-, Zweier- und Dreiermuster mit variablen Abständen.
+    if(p<.18) fns=[spawnCenterObstacle,spawnSingleObstacle,spawnWaterVariedPair,spawnGatePattern];
+    else if(p<.50) fns=r<.45?[spawnWaterVariedPair,spawnCenterObstacle,spawnSingleObstacle,spawnGatePattern]:[spawnSingleObstacle,spawnWaterVariedTriple,spawnWaterVariedPair,spawnSlalomPattern];
+    else fns=r<.34?[spawnWaterVariedTriple,spawnSingleObstacle,spawnGatePattern,spawnWaterVariedPair]:r<.67?[spawnSingleObstacle,spawnSlalomPattern,spawnWaterVariedPair,spawnCenterObstacle]:[spawnGatePattern,spawnWaterVariedTriple,spawnSingleObstacle,spawnWaterVariedPair];
   }else{
-    fns=p>.35?[spawnGatePattern,spawnSlalomPattern,spawnOffsetPairPattern,spawnSingleObstacle]:[spawnSlalomPattern,spawnOffsetPairPattern,spawnSingleObstacle];
+    // In der Luft bewusst abwechslungsreich: Einzel-, Paar-, Tor-, Slalom- und Dreiermuster.
+    if(r<.20)fns=[spawnSingleObstacle,spawnEdgePairPattern,spawnGatePattern];
+    else if(r<.43)fns=[spawnTriplePattern,spawnSlalomPattern,spawnGatePattern,spawnSingleObstacle];
+    else if(r<.68)fns=[spawnGatePattern,spawnEdgePairPattern,spawnSingleObstacle,spawnTriplePattern];
+    else fns=[spawnSlalomPattern,spawnOffsetPairPattern,spawnSingleObstacle,spawnTriplePattern];
   }
   for(const fn of fns)if(fn())return true;return false;
 }
@@ -418,7 +563,7 @@ function spawnFuel(){
   const y=-55,cfg=levelCfg(),margin=58,candidates=[];
   for(let attempt=0;attempt<28;attempt++){
     const x=cfg.xMin+margin+Math.random()*Math.max(1,(cfg.xMax-cfg.xMin)-margin*2);
-    const r={x:x-FUEL_W*.40,y:y-FUEL_H*.42,w:FUEL_W*.80,h:FUEL_H*.84};
+    const fs=fuelDrawSize(),r={x:x-fs.w*.40,y:y-fs.h*.42,w:fs.w*.80,h:fs.h*.84};
     if(overlapsAny(r,state.obstacles,obstacleRect,SPAWN_PAD_FUEL_OBSTACLE))continue;
     if(overlapsAny(r,state.medipacItems,medipacRect,SPAWN_PAD_FUEL_OBSTACLE))continue;
     if(overlapsAny(r,state.creeks,creekRect,SPAWN_PAD_FUEL_CREEK))continue;
@@ -435,7 +580,7 @@ function spawnMedipac(){
   const y=-58,cfg=levelCfg(),margin=62;
   for(let attempt=0;attempt<40;attempt++){
     const x=cfg.xMin+margin+Math.random()*Math.max(1,(cfg.xMax-cfg.xMin)-margin*2);
-    const r={x:x-MEDIPAC_W*.42,y:y-MEDIPAC_H*.42,w:MEDIPAC_W*.84,h:MEDIPAC_H*.84};
+    const ms=medipacDrawSize(),r={x:x-ms.w*.42,y:y-ms.h*.42,w:ms.w*.84,h:ms.h*.84};
     if(overlapsAny(r,state.obstacles,obstacleRect,22))continue;
     if(overlapsAny(r,state.fuelItems,fuelRect,20))continue;
     if(overlapsAny(r,state.creeks,creekRect,18))continue;
@@ -443,6 +588,48 @@ function spawnMedipac(){
     return true;
   }
   return false;
+}
+function isWildboarYBlocked(y){
+  const creekBlocked=state.creeks.some(c=>Math.abs(y-c.y)<riverDrawH()*.55+22);
+  const obstacleBlocked=state.obstacles.some(o=>Math.abs(y-(o.y+(o.floatY||0)))<Math.max(o.hitH||0,WILDBOAR_H)*.60+18);
+  return creekBlocked||obstacleBlocked;
+}
+function chooseWildboarY(baseY){
+  const candidates=[baseY,...WILDBOAR_LANES].filter((v,i,a)=>a.indexOf(v)===i);
+  const sorted=candidates.sort((a,b)=>Math.abs(a-baseY)-Math.abs(b-baseY));
+  for(const y of sorted){ if(!isWildboarYBlocked(y)) return y; }
+  return baseY;
+}
+
+function spawnWildboar(item){
+  const fromLeft=!!item.fromLeft;
+  const x=fromLeft?-WILDBOAR_W*.55:W+WILDBOAR_W*.55;
+  const speed=290+Math.random()*40;
+  const y=chooseWildboarY(item.y);
+  state.wildboars.push({x,y,vx:(fromLeft?1:-1)*speed,fromLeft,phase:Math.random()*Math.PI*2});
+  return true;
+}
+function spawnCrocodile(scheduleItem=null){
+  const fromLeft=Math.random()<.5;
+  const x=fromLeft?CROCODILE_BANK_X:W-CROCODILE_BANK_X;
+  const targetX=fromLeft?W-CROCODILE_BANK_X:CROCODILE_BANK_X;
+  const y=-CROCODILE_H*.62;
+  const lower=!!(scheduleItem&&scheduleItem.lowerCrossing);
+  const startSwimY=lower?(H*.62+Math.random()*H*.15):(112+Math.random()*155);
+  const vx=(fromLeft?1:-1)*(138+Math.random()*38);
+  state.crocodiles.push({x,y,targetX,startSwimY,vx,fromLeft,movePhase:'waiting',phase:Math.random()*Math.PI*2,lower});
+  return true;
+}
+function spawnKite(){
+  const fromLeft=Math.random()<.5;
+  const x=fromLeft?46:W-46;
+  const y=H-38;
+  const targetX=fromLeft?(W*(.74+Math.random()*.16)):(W*(.10+Math.random()*.16));
+  const targetY=-110;
+  const flyTime=3.4+Math.random()*.7;
+  const vx=(targetX-x)/flyTime,vy=(targetY-y)/flyTime;
+  state.kites.push({x,y,vx,vy,wait:2.0,fromLeft,phase:Math.random()*Math.PI*2,rot:fromLeft?.22:-.22});
+  return true;
 }
 function spawnCreek(){
   const riverH=riverDrawH(),bridge=bridgeDrawSize();
@@ -493,7 +680,12 @@ function update(dt,now){
   }
   for(const f of state.fuelSchedule)if(!f.spawned&&state.elapsed>=f.spawnAt&&spawnFuel())f.spawned=true;
   if(state.medipacSchedule&&!state.medipacSchedule.spawned&&state.elapsed>=state.medipacSchedule.spawnAt&&spawnMedipac())state.medipacSchedule.spawned=true;
-  if(state.levelIndex===0)for(const c of state.creekSchedule)if(!c.spawned&&state.elapsed>=c.spawnAt&&spawnCreek())c.spawned=true;
+  if(state.levelIndex===0){
+    for(const c of state.creekSchedule)if(!c.spawned&&state.elapsed>=c.spawnAt&&spawnCreek())c.spawned=true;
+    for(const b of state.wildboarSchedule)if(!b.spawned&&state.elapsed>=b.spawnAt&&spawnWildboar(b))b.spawned=true;
+  }
+  if(state.levelIndex===1)for(const c of state.crocSchedule)if(!c.spawned&&state.elapsed>=c.spawnAt&&spawnCrocodile(c))c.spawned=true;
+  if(state.levelIndex===2)for(const k of state.kiteSchedule)if(!k.spawned&&state.elapsed>=k.spawnAt&&spawnKite())k.spawned=true;
   if(state.levelIndex===0&&!state.stegoSpawned&&state.elapsed>=18){
     state.stego={x:92,y:-150,w:220,h:162,passed:false};
     state.stegoSpawned=true;
@@ -510,16 +702,7 @@ function update(dt,now){
   let controlFactor=1,envPushX=0;
   const v=vehicleCfg();
   const playerProbe={x:state.jeepX-v.hitW*.5,y:state.jeepY-v.hitH*.5,w:v.hitW,h:v.hitH};
-  if(state.levelIndex===0){
-    for(const pch of state.dustPatches){
-      const pr={x:pch.x,y:pch.y-pch.h/2,w:pch.w,h:pch.h};
-      if(rectHit(playerProbe,pr)){
-        controlFactor=DUST_PATCH_CONTROL;
-        envPushX+=Math.sin(now*.030+pch.phase)*10;
-        break;
-      }
-    }
-  }else if(state.levelIndex===2){
+  if(state.levelIndex===2){
     const gust=state.windGusts.find(g=>state.elapsed>=g.start&&state.elapsed<g.start+g.dur);
     state.windForce=gust?gust.force:0;
     envPushX+=state.windForce;
@@ -543,6 +726,29 @@ function update(dt,now){
   for(const m of state.medipacItems){m.y+=speed*dt;m.bob+=dt*1.9;}
   for(const c of state.creeks)c.y+=speed*dt;
   for(const pch of state.dustPatches)pch.y+=speed*dt;
+  for(const b of state.wildboars){b.x+=b.vx*dt;}
+  for(const c of state.crocodiles){
+    if(c.movePhase==='waiting'){
+      c.y+=speed*dt;
+      if(c.y>=c.startSwimY)c.movePhase='swimming';
+    }else if(c.movePhase==='swimming'){
+      c.x+=c.vx*dt;
+      if((c.fromLeft&&c.x>=c.targetX)||(!c.fromLeft&&c.x<=c.targetX)){
+        c.x=c.targetX;
+        c.movePhase='done';
+      }
+    }else{
+      c.y+=speed*dt;
+    }
+  }
+  for(const k of state.kites){
+    if(k.wait>0){k.wait=Math.max(0,k.wait-dt);k.y+=Math.sin(state.elapsed*4+k.phase)*10*dt;}
+    else{
+      k.x+=k.vx*dt;
+      k.y+=k.vy*dt;
+      k.rot=Math.atan2(k.vx,-k.vy)*.42;
+    }
+  }
   if(state.stego){
     state.stego.y+=speed*dt;
     if(!state.stego.passed && state.stego.y>state.jeepY-10){
@@ -559,7 +765,7 @@ function update(dt,now){
     }
     if(state.triceratops.y>H+160)state.triceratops=null;
   }
-  state.obstacles=state.obstacles.filter(o=>o.y<H+120);state.fuelItems=state.fuelItems.filter(f=>f.y<H+100);state.medipacItems=state.medipacItems.filter(m=>m.y<H+100);state.creeks=state.creeks.filter(c=>c.y<H+100);state.dustPatches=state.dustPatches.filter(p=>p.y<H+120);
+  state.obstacles=state.obstacles.filter(o=>o.y<H+120);state.fuelItems=state.fuelItems.filter(f=>f.y<H+100);state.medipacItems=state.medipacItems.filter(m=>m.y<H+100);state.creeks=state.creeks.filter(c=>c.y<H+100);state.dustPatches=state.dustPatches.filter(p=>p.y<H+120);state.crocodiles=state.crocodiles.filter(c=>c.y>-CROCODILE_H*1.5&&c.y<H+CROCODILE_H*1.5);state.kites=state.kites.filter(k=>k.x>-KITE_W&&k.x<W+KITE_W&&k.y>-KITE_H&&k.y<H+KITE_H+80);state.wildboars=state.wildboars.filter(b=>b.x>-WILDBOAR_W&&b.x<W+WILDBOAR_W&&b.y>-WILDBOAR_H&&b.y<H+WILDBOAR_H);
   if(state.invuln>0)state.invuln=Math.max(0,state.invuln-dt);if(state.flash>0)state.flash=Math.max(0,state.flash-dt);if(state.shake>0)state.shake=Math.max(0,state.shake-dt);if(state.nearMissCooldown>0)state.nearMissCooldown=Math.max(0,state.nearMissCooldown-dt);
 
   const player={x:state.jeepX-v.hitW*.5,y:state.jeepY-v.hitH*.5,w:v.hitW,h:v.hitH};
@@ -576,24 +782,21 @@ function update(dt,now){
   if(state.levelIndex===0&&state.invuln<=0&&!state.jumping){
     for(const c of state.creeks){
       if(c.hit)continue;
-      const riverH=riverDrawH(),bridge=bridgeDrawSize(),waterY=c.y-riverH/2;
-      const left={x:0,y:waterY,w:Math.max(0,c.bridgeX-bridge.w/2),h:riverH};
-      const rightX=c.bridgeX+bridge.w/2;
-      const right={x:rightX,y:waterY,w:Math.max(0,W-rightX),h:riverH};
+      const [left,right]=creekWaterHitRects(c);
       if(rectHit(player,left)||rectHit(player,right)){c.hit=true;hitPlayer();break;}
     }
   }
   if(state.invuln<=0&&!state.jumping){
     for(const o of state.obstacles){if(rectHit(player,obstacleRect(o))){o.y=H+200;hitPlayer();break;}}
+    if(state.invuln<=0){for(const b of state.wildboars){if(rectHit(player,wildboarRect(b))){b.x=b.fromLeft?W+999:-999;hitPlayer();break;}}}
+    if(state.invuln<=0){for(const c of state.crocodiles){if(!c.hit&&rectHit(player,crocodileRect(c))){c.hit=true;hitPlayer();break;}}}
+    if(state.invuln<=0){for(const k of state.kites){if(rectHit(player,kiteRect(k))){k.y=-999;hitPlayer();break;}}}
   }
-  if(state.mode==='play'&&state.invuln<=0&&state.nearMissCooldown<=0){
-    let near=nearestDistance(player,state.obstacles,obstacleRect);
+  if(state.mode==='play'&&state.invuln<=0&&state.nearMissCooldown<=0&&!state.jumping){
+    let near=Math.min(nearestDistance(player,state.obstacles,obstacleRect),nearestDistance(player,state.wildboars,wildboarRect),nearestDistance(player,state.crocodiles,crocodileRect),nearestDistance(player,state.kites,kiteRect));
     if(state.levelIndex===0&&!state.jumping){
       for(const c of state.creeks){
-        const riverH=riverDrawH(),bridge=bridgeDrawSize(),waterY=c.y-riverH/2;
-        const left={x:0,y:waterY,w:Math.max(0,c.bridgeX-bridge.w/2),h:riverH};
-        const rightX=c.bridgeX+bridge.w/2;
-        const right={x:rightX,y:waterY,w:Math.max(0,W-rightX),h:riverH};
+        const [left,right]=creekWaterHitRects(c);
         near=Math.min(near,distanceBetweenRects(player,left),distanceBetweenRects(player,right));
       }
     }
@@ -668,33 +871,44 @@ function drawDustPatches(now){
   ctx.save();
   for(const p of state.dustPatches){
     const sway=Math.sin(now*.0018+p.phase)*10;
-    ctx.fillStyle='rgba(194,145,88,.16)';
-    ctx.beginPath();ctx.ellipse(p.x+p.w/2+sway,p.y,p.w*.50,p.h*.40,0,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle='rgba(229,195,144,.10)';
-    ctx.beginPath();ctx.ellipse(p.x+p.w*.28+sway*0.8,p.y+6,p.w*.26,p.h*.22,0,0,Math.PI*2);ctx.fill();
-    ctx.beginPath();ctx.ellipse(p.x+p.w*.72+sway*0.7,p.y-4,p.w*.24,p.h*.20,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='rgba(176,119,61,.28)';
+    ctx.beginPath();ctx.ellipse(p.x+p.w/2+sway,p.y,p.w*.50,p.h*.42,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='rgba(232,194,135,.19)';
+    ctx.beginPath();ctx.ellipse(p.x+p.w*.28+sway*0.8,p.y+8,p.w*.28,p.h*.25,0,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.ellipse(p.x+p.w*.72+sway*0.7,p.y-5,p.w*.26,p.h*.23,0,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='rgba(118,76,38,.18)';ctx.lineWidth=3;
+    ctx.beginPath();ctx.moveTo(p.x+p.w*.15+sway,p.y+8);ctx.quadraticCurveTo(p.x+p.w*.48,p.y-16,p.x+p.w*.84+sway*.4,p.y+10);ctx.stroke();
   }
   ctx.restore();
 }
 function drawWindGustFx(now){
   if(state.levelIndex!==2||Math.abs(state.windForce)<1)return;
-  const dir=Math.sign(state.windForce)||1;
-  const strength=Math.min(1,Math.abs(state.windForce)/70);
-  ctx.save();
-  ctx.strokeStyle=`rgba(255,255,255,${0.10+strength*.14})`;
-  ctx.lineWidth=2;
-  for(let i=0;i<8;i++){
-    const y=80+i*70+Math.sin(now*.002+i)*12;
-    const x=dir>0?110+(i*85)%W:W-110-((i*85)%W);
-    ctx.beginPath();
-    ctx.moveTo(x-dir*42,y+7);
-    ctx.lineTo(x+dir*42,y-7);
-    ctx.stroke();
+  const dir=Math.sign(state.windForce)||1,strength=Math.min(1,Math.abs(state.windForce)/120);
+  if(spriteReady(SPRITES.wind)){
+    ctx.save();
+    const w=176,h=w*(SPRITES.wind.naturalHeight/SPRITES.wind.naturalWidth);
+    const phase=(now*.18)%(W+w*1.6);
+    const baseX=dir>0?phase-w*.8:W-(phase-w*.8);
+    const ys=[92,208,324,440];
+    ctx.globalAlpha=.42+.24*strength;
+    for(let i=0;i<ys.length;i++){
+      const x=baseX+(dir>0?1:-1)*(i%2===0?0:42);
+      const y=ys[i]+Math.sin(now*.0022+i*.9)*18;
+      ctx.save();
+      ctx.translate(x,y);
+      if(dir<0)ctx.scale(-1,1);
+      ctx.drawImage(SPRITES.wind,-w/2,-h/2,w,h);
+      ctx.restore();
+    }
+    ctx.restore();
+    return;
   }
+  ctx.save();ctx.strokeStyle=`rgba(255,255,255,${0.16+strength*.20})`;ctx.lineWidth=2.6;
+  for(let i=0;i<12;i++){const y=45+i*51+Math.sin(now*.003+i)*14;const x=dir>0?110+(i*85)%W:W-110-((i*85)%W);ctx.beginPath();ctx.moveTo(x-dir*58,y+10);ctx.lineTo(x+dir*58,y-10);ctx.stroke();}
   ctx.restore();
 }
 function drawNearMissFx(now){
-  if(now>=state.nearMissUntil)return;
+  if(state.jumping||now>=state.nearMissUntil)return;
   ctx.save();
   ctx.font='26px system-ui';
   ctx.textAlign='center';
@@ -727,6 +941,7 @@ function drawCreek(c){
 function drawCloud(o){
   const img=SPRITES.clouds[o.variant];
   if(spriteReady(img)){
+    if(Math.sin(o.animPhase)<0)ctx.scale(-1,1);
     ctx.drawImage(img,-o.w/2,-o.h/2,o.w,o.h);
     return;
   }
@@ -736,6 +951,7 @@ function drawCloud(o){
 function drawBird(o){
   const img=SPRITES.birds[o.variant];
   if(spriteReady(img)){
+    if(Math.sin(o.animPhase)<0)ctx.scale(-1,1);
     ctx.drawImage(img,-o.w/2,-o.h/2,o.w,o.h);
     return;
   }
@@ -759,20 +975,59 @@ function drawObstacle(o){
 }
 function drawFuel(f){
   ctx.save();ctx.translate(f.x,f.y);ctx.translate(0,Math.sin(f.spin)*2);
-  if(state.levelIndex!==2){ctx.fillStyle='rgba(0,0,0,.20)';ctx.beginPath();ctx.ellipse(0,f.h*.38,f.w*.38,f.h*.12,0,0,Math.PI*2);ctx.fill();}
-  if(spriteReady(SPRITES.fuel))ctx.drawImage(SPRITES.fuel,-f.w/2,-f.h/2,f.w,f.h);else{ctx.fillStyle='#d84532';roundedRect(-16,-20,32,40,5);ctx.fill();}
+  const fuel=SPRITES.fuels[state.levelIndex]||SPRITES.fuels[0],s=fuelDrawSize();
+  if(state.levelIndex!==2){ctx.fillStyle='rgba(0,0,0,.20)';ctx.beginPath();ctx.ellipse(0,s.h*.38,s.w*.38,s.h*.12,0,0,Math.PI*2);ctx.fill();}
+  if(spriteReady(fuel))ctx.drawImage(fuel,-s.w/2,-s.h/2,s.w,s.h);else{ctx.fillStyle='#d84532';roundedRect(-16,-20,32,40,5);ctx.fill();}
   ctx.restore();
 }
 function drawMedipac(m){
   ctx.save();
   ctx.translate(m.x,m.y+Math.sin(m.bob)*2);
-  if(state.levelIndex!==2){ctx.fillStyle='rgba(0,0,0,.20)';ctx.beginPath();ctx.ellipse(0,m.h*.38,m.w*.36,m.h*.11,0,0,Math.PI*2);ctx.fill();}
-  if(spriteReady(SPRITES.medkit))ctx.drawImage(SPRITES.medkit,-m.w/2,-m.h/2,m.w,m.h);
+  const med=SPRITES.medkits[state.levelIndex]||SPRITES.medkits[0],s=medipacDrawSize();
+  if(state.levelIndex!==2){ctx.fillStyle='rgba(0,0,0,.20)';ctx.beginPath();ctx.ellipse(0,s.h*.38,s.w*.36,s.h*.11,0,0,Math.PI*2);ctx.fill();}
+  if(spriteReady(med))ctx.drawImage(med,-s.w/2,-s.h/2,s.w,s.h);
   else{
     ctx.fillStyle='#c93434';ctx.strokeStyle='#6e1717';ctx.lineWidth=3;roundedRect(-20,-17,40,34,7);ctx.fill();ctx.stroke();
     ctx.fillStyle='#f3f3ed';ctx.fillRect(-5,-11,10,22);ctx.fillRect(-11,-5,22,10);
     ctx.fillStyle='#7d2020';roundedRect(-10,-23,20,8,4);ctx.fill();
   }
+  ctx.restore();
+}
+function drawWildboar(b){
+  ctx.save();
+  ctx.translate(b.x,b.y);
+  if(!b.fromLeft)ctx.scale(-1,1);
+  ctx.rotate((b.fromLeft?1:-1)*.015);
+  const boarFrames=(SPRITES.wildboars||[]).filter(spriteReady);
+  if(boarFrames.length){
+    const frame=boarFrames[Math.floor(state.elapsed*10)%boarFrames.length];
+    const ratio=frame.naturalWidth/frame.naturalHeight,h=WILDBOAR_H,w=h*ratio;
+    ctx.drawImage(frame,-w/2,-h/2,w,h);
+  }else{
+    ctx.fillStyle='#6f4930';ctx.beginPath();ctx.ellipse(0,3,38,22,0,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.ellipse(34,-4,18,15,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#3d2a20';ctx.beginPath();ctx.moveTo(25,-14);ctx.lineTo(31,-29);ctx.lineTo(38,-13);ctx.fill();
+    ctx.strokeStyle='#ead9b3';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(46,4);ctx.quadraticCurveTo(56,4,54,-6);ctx.stroke();
+    ctx.fillStyle='#251b17';for(const lx of [-20,7])ctx.fillRect(lx,18,7,18);
+  }
+  ctx.restore();
+}
+function drawCrocodile(c){
+  ctx.save();
+  ctx.translate(c.x,c.y);
+  if(!c.fromLeft)ctx.scale(-1,1);
+  const bob=c.movePhase==='swimming'?Math.sin(state.elapsed*3.0+c.phase)*2.5:0;
+  ctx.translate(0,bob);
+  if(spriteReady(SPRITES.crocodile))ctx.drawImage(SPRITES.crocodile,-CROCODILE_W/2,-CROCODILE_H/2,CROCODILE_W,CROCODILE_H);
+  else{ctx.fillStyle='#4b7c39';roundedRect(-52,-20,104,40,16);ctx.fill();}
+  ctx.restore();
+}
+function drawKite(k){
+  ctx.save();
+  ctx.translate(k.x,k.y);
+  if(!k.fromLeft)ctx.scale(-1,1);
+  ctx.rotate(k.rot+Math.sin(state.elapsed*4+k.phase)*.04);
+  if(spriteReady(SPRITES.kite))ctx.drawImage(SPRITES.kite,-KITE_W/2,-KITE_H/2,KITE_W,KITE_H);
+  else{ctx.strokeStyle='#6b4a2b';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(0,-32);ctx.lineTo(26,0);ctx.lineTo(0,34);ctx.lineTo(-26,0);ctx.closePath();ctx.stroke();}
   ctx.restore();
 }
 function drawJeepDirt(now,cfg,arc,terrainX,terrainY,terrainRot,lift){
@@ -913,7 +1168,7 @@ function drawStegoMessage(now){
   ctx.fillStyle='#ffe59a';
   ctx.font='bold 16px system-ui';
   ctx.textAlign='center';
-  ctx.fillText('🦕 Gib Gummi, Spiono, Bleifuss und Vollgas!',W/2,59);
+  ctx.fillText('🦕 Gib Gummi, Spiono, Bleifuß und Vollgas!',W/2,59);
   ctx.textAlign='left';
 }
 function drawTriceratops(){
@@ -972,17 +1227,21 @@ function drawOverlay(){
   }else if(state.mode==='paused'){
     ctx.fillStyle='rgba(5,10,8,.48)';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.font='bold 38px system-ui';ctx.fillStyle='#f3d35c';ctx.fillText('PAUSE',W/2,H/2);ctx.textAlign='left';
   }else if(['win','fuelFail','fail'].includes(state.mode)){
-    ctx.fillStyle='rgba(5,10,8,.50)';ctx.fillRect(0,0,W,H);const isWin=state.mode==='win',boxH=138,boxY=H-boxH-28;ctx.fillStyle='rgba(0,0,0,.58)';ctx.fillRect(W/2-330,boxY,660,boxH);ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 34px system-ui';ctx.fillText(isWin?'ALLE 3 LEVEL GESCHAFFT!':state.mode==='fuelFail'?'TANK LEER!':'GECRASHED!',W/2,boxY+38);ctx.font='20px system-ui';ctx.fillStyle=isWin?'#f3d35c':'#ffaaaa';ctx.fillText(isWin?'Spiono hat die Rallye geschafft.':state.mode==='fuelFail'?'Spiono bleibt ohne Fuel liegen.':'Spiono ist auf der Strecke geblieben.',W/2,boxY+74);ctx.font='16px system-ui';ctx.fillStyle='#ddd';ctx.fillText('Leertaste für einen neuen Versuch',W/2,boxY+108);ctx.textAlign='left';
+    const isWin=state.mode==='win',boxH=138,boxY=H-boxH-28;ctx.fillStyle='rgba(0,0,0,.58)';ctx.fillRect(W/2-330,boxY,660,boxH);ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 34px system-ui';ctx.fillText(isWin?'ALLE 3 LEVEL GESCHAFFT!':state.mode==='fuelFail'?'TANK LEER!':'GECRASHED!',W/2,boxY+38);ctx.font='20px system-ui';ctx.fillStyle=isWin?'#f3d35c':'#ffaaaa';ctx.fillText(isWin?'Spiono hat die Rallye geschafft.':state.mode==='fuelFail'?(state.levelIndex===1?'Spiono säuft ohne Fuel ab.':state.levelIndex===2?'Spiono stürzt ohne Fuel ab.':'Spiono bleibt ohne Fuel liegen.'):'Spiono ist auf der Strecke geblieben.',W/2,boxY+74);ctx.font='16px system-ui';ctx.fillStyle='#ddd';ctx.fillText('Leertaste für einen neuen Versuch',W/2,boxY+108);ctx.textAlign='left';
   }
 }
 function draw(now){
   if(state.mode==='start'&&spriteReady(SPRITES.startScreen)){
-    ctx.clearRect(0,0,W,H);
-    ctx.drawImage(SPRITES.startScreen,0,0,W,H);
-    drawOverlay();
-    return;
+    ctx.clearRect(0,0,W,H);ctx.drawImage(SPRITES.startScreen,0,0,W,H);drawOverlay();return;
   }
-  ctx.save();if(state.shake>0){const m=6*(state.shake/.35);ctx.translate((Math.random()-.5)*m,(Math.random()-.5)*m);}drawGround();drawDustPatches(now);drawWindGustFx(now);drawStego();drawTriceratops();for(const c of state.creeks)drawCreek(c);for(const o of state.obstacles)drawObstacle(o);for(const f of state.fuelItems)drawFuel(f);for(const m of state.medipacItems)drawMedipac(m);drawVehicle(now);ctx.restore();if(state.flash>0){ctx.fillStyle=`rgba(255,70,70,${Math.min(.28,state.flash)})`;ctx.fillRect(0,0,W,H);}drawNearMissFx(now);drawStegoMessage(now);drawTriceratopsMessage(now);drawOverlay();
+  if(state.mode==='win'&&spriteReady(SPRITES.winScreen)){
+    ctx.clearRect(0,0,W,H);ctx.drawImage(SPRITES.winScreen,0,0,W,H);drawOverlay();return;
+  }
+  if(state.mode==='fail'||state.mode==='fuelFail'){
+    const failImg=SPRITES.failScreens[state.levelIndex];
+    if(spriteReady(failImg)){ctx.clearRect(0,0,W,H);ctx.drawImage(failImg,0,0,W,H);drawOverlay();return;}
+  }
+  ctx.save();if(state.shake>0){const m=6*(state.shake/.35);ctx.translate((Math.random()-.5)*m,(Math.random()-.5)*m);}drawGround();drawDustPatches(now);drawWindGustFx(now);drawStego();drawTriceratops();for(const c of state.creeks)drawCreek(c);for(const o of state.obstacles)drawObstacle(o);for(const b of state.wildboars)drawWildboar(b);for(const c of state.crocodiles)drawCrocodile(c);for(const k of state.kites)drawKite(k);for(const f of state.fuelItems)drawFuel(f);for(const m of state.medipacItems)drawMedipac(m);drawVehicle(now);ctx.restore();if(state.flash>0){ctx.fillStyle=`rgba(255,70,70,${Math.min(.28,state.flash)})`;ctx.fillRect(0,0,W,H);}drawNearMissFx(now);drawStegoMessage(now);drawTriceratopsMessage(now);drawOverlay();
 }
 function loop(now){const dt=Math.min(.035,(now-last)/1000);last=now;update(dt,now);draw(now);requestAnimationFrame(loop);}requestAnimationFrame(loop);
 
