@@ -26,14 +26,15 @@
   .title-head{width:66px;height:66px;object-fit:contain;display:block}
   .spino-head{justify-self:start}.greif-head{justify-self:end}
   .bar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}
-  .items{display:flex;gap:8px;flex-wrap:wrap}
+  .items{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .item{
     display:flex;align-items:center;gap:7px;height:34px;padding:6px 10px;
     border:1px solid #476b59;border-radius:9px;background:#14291e;
-    font-size:14px;font-weight:800;
+    font-size:14px;font-weight:800;line-height:1;
   }
-  .item .state{font-size:12px;opacity:.78}
-  .fuel-wrap{display:flex;align-items:center;gap:7px}
+  .item .state{font-size:12px;opacity:.78;display:inline-flex;align-items:center;line-height:1;height:100%}
+  .fuel-wrap{display:flex;align-items:center;gap:7px;line-height:1}
+  .fuel-wrap .fuel-gauge{align-self:center}
   .fuel-gauge{display:block;width:225px;min-width:225px;height:12px;border:1px solid #76906f;border-radius:6px;overflow:hidden;background:#08120d}
   .fuel-fill{display:block;height:100%;width:100%;background:#f3d35c;transform-origin:left center;transform:scaleX(1)}
   button{border:0;border-radius:10px;padding:8px 13px;font-weight:800;background:#f3d35c;cursor:pointer}
@@ -66,7 +67,7 @@
   </div>
 </div>
 <script>
-// v31: Feintuning 17.09.2026 – Raser-Rallye, Umwelt, Ufer/Krokodile, Wind, Muster, Texte
+// v36: WebP-Umstellung + HUD/Fuelwarnung + Level-1-Mitte + Winscreen im Flucht-Stil
 const canvas=document.getElementById('game');
 const ctx=canvas.getContext('2d');
 const restartBtn=document.getElementById('restart');
@@ -124,63 +125,63 @@ let state;
 function loadSprite(src){const img=new Image();img.src=src;return img;}
 const SPRITES={
   fuels:[
-    loadSprite('spino-rallye-assets/sprite_fuel1.png'),
-    loadSprite('spino-rallye-assets/sprite_fuel2.png'),
-    loadSprite('spino-rallye-assets/sprite_fuel3.png')
+    loadSprite('spino-rallye-assets/sprite_fuel1.webp'),
+    loadSprite('spino-rallye-assets/sprite_fuel2.webp'),
+    loadSprite('spino-rallye-assets/sprite_fuel3.webp')
   ],
   medkits:[
-    loadSprite('spino-rallye-assets/sprite_medkit1.png'),
-    loadSprite('spino-rallye-assets/sprite_medkit2.png'),
-    loadSprite('spino-rallye-assets/sprite_medkit3.png')
+    loadSprite('spino-rallye-assets/sprite_medkit1.webp'),
+    loadSprite('spino-rallye-assets/sprite_medkit2.webp'),
+    loadSprite('spino-rallye-assets/sprite_medkit3.webp')
   ],
-  startScreen:loadSprite('spino-rallye-assets/spino_start_screen.png'),
-  winScreen:loadSprite('spino-rallye-assets/spino_win_screen.png'),
+  startScreen:loadSprite('spino-rallye-assets/spino_start_screen.webp'),
+  winScreen:loadSprite('spino-rallye-assets/spino_win_screen.webp'),
   failScreens:[
-    loadSprite('spino-rallye-assets/spino_fail_screen1.png'),
-    loadSprite('spino-rallye-assets/spino_fail_screen2.png'),
-    loadSprite('spino-rallye-assets/spino_fail_screen3.png')
+    loadSprite('spino-rallye-assets/spino_fail_screen1.webp'),
+    loadSprite('spino-rallye-assets/spino_fail_screen2.webp'),
+    loadSprite('spino-rallye-assets/spino_fail_screen3.webp')
   ],
   wildboars:[
-    loadSprite('spino-rallye-assets/sprite_boar1.png'),
-    loadSprite('spino-rallye-assets/sprite_boar2.png')
+    loadSprite('spino-rallye-assets/sprite_boar1.webp'),
+    loadSprite('spino-rallye-assets/sprite_boar2.webp')
   ],
-  wind:loadSprite('spino-rallye-assets/sprite_wind.png'),
-  stego:loadSprite('spino-rallye-assets/sprite_stego.png'),
-  triceratops:loadSprite('spino-rallye-assets/sprite_triceratops.png'),
-  jeep:loadSprite('spino-rallye-assets/sprite_spiono_jeep.png'),
-  jetski:loadSprite('spino-rallye-assets/sprite_spiono_jetski.png'),
-  jet:loadSprite('spino-rallye-assets/sprite_spiono_jet.png'),
-  bgLand01:loadSprite('spino-rallye-assets/backround_01.png'),
-  bgWater02:loadSprite('spino-rallye-assets/backround_02.png'),
-  bgSky03:loadSprite('spino-rallye-assets/backround_03.png'),
-  river:loadSprite('spino-rallye-assets/sprite_river.png'),
-  bridge:loadSprite('spino-rallye-assets/sprite_bridge.png'),
-  crocodile:loadSprite('spino-rallye-assets/sprite_crocodile.png'),
-  kite:loadSprite('spino-rallye-assets/sprite_kite.png'),
+  wind:loadSprite('spino-rallye-assets/sprite_wind.webp'),
+  stego:loadSprite('spino-rallye-assets/sprite_stego.webp'),
+  triceratops:loadSprite('spino-rallye-assets/sprite_triceratops.webp'),
+  jeep:loadSprite('spino-rallye-assets/sprite_spiono_jeep.webp'),
+  jetski:loadSprite('spino-rallye-assets/sprite_spiono_jetski.webp'),
+  jet:loadSprite('spino-rallye-assets/sprite_spiono_jet.webp'),
+  bgLand01:loadSprite('spino-rallye-assets/backround_01.webp'),
+  bgWater02:loadSprite('spino-rallye-assets/backround_02.webp'),
+  bgSky03:loadSprite('spino-rallye-assets/backround_03.webp'),
+  river:loadSprite('spino-rallye-assets/sprite_river.webp'),
+  bridge:loadSprite('spino-rallye-assets/sprite_bridge.webp'),
+  crocodile:loadSprite('spino-rallye-assets/sprite_crocodile.webp'),
+  kite:loadSprite('spino-rallye-assets/sprite_kite.webp'),
   clouds:[
-    loadSprite('spino-rallye-assets/sprite_cloud1.png'),
-    loadSprite('spino-rallye-assets/sprite_cloud2.png'),
-    loadSprite('spino-rallye-assets/sprite_cloud3.png')
+    loadSprite('spino-rallye-assets/sprite_cloud1.webp'),
+    loadSprite('spino-rallye-assets/sprite_cloud2.webp'),
+    loadSprite('spino-rallye-assets/sprite_cloud3.webp')
   ],
   birds:[
-    loadSprite('spino-rallye-assets/sprite_bird1.png'),
-    loadSprite('spino-rallye-assets/sprite_bird2.png'),
-    loadSprite('spino-rallye-assets/sprite_bird3.png')
+    loadSprite('spino-rallye-assets/sprite_bird1.webp'),
+    loadSprite('spino-rallye-assets/sprite_bird2.webp'),
+    loadSprite('spino-rallye-assets/sprite_bird3.webp')
   ],
   buoys:[
-    loadSprite('spino-rallye-assets/sprite_buoy1.png'),
-    loadSprite('spino-rallye-assets/sprite_buoy2.png'),
-    loadSprite('spino-rallye-assets/sprite_buoy3.png')
+    loadSprite('spino-rallye-assets/sprite_buoy1.webp'),
+    loadSprite('spino-rallye-assets/sprite_buoy2.webp'),
+    loadSprite('spino-rallye-assets/sprite_buoy3.webp')
   ],
   trees:[
-    loadSprite('spino-rallye-assets/sprite_tree1.png'),
-    loadSprite('spino-rallye-assets/sprite_tree2.png'),
-    loadSprite('spino-rallye-assets/sprite_tree3.png')
+    loadSprite('spino-rallye-assets/sprite_tree1.webp'),
+    loadSprite('spino-rallye-assets/sprite_tree2.webp'),
+    loadSprite('spino-rallye-assets/sprite_tree3.webp')
   ],
   rocks:[
-    loadSprite('spino-rallye-assets/sprite_rock1.png'),
-    loadSprite('spino-rallye-assets/sprite_rock2.png'),
-    loadSprite('spino-rallye-assets/sprite_rock3.png')
+    loadSprite('spino-rallye-assets/sprite_rock1.webp'),
+    loadSprite('spino-rallye-assets/sprite_rock2.webp'),
+    loadSprite('spino-rallye-assets/sprite_rock3.webp')
   ]
 };
 const TREE_DRAW_SIZE=118,ROCK_DRAW_SIZE=82;
@@ -352,10 +353,12 @@ function updateHud(){
   if(ratio<=LOW_FUEL_RATIO&&state&&state.mode==='play'){
     const pulse=.62+.38*(.5+.5*Math.sin(performance.now()*0.018));
     fuelFill.style.opacity=String(pulse);
-    fuelFill.style.filter=`brightness(${1.0+.45*pulse}) saturate(1.25)`;
-    fuelFill.style.boxShadow=`0 0 ${8+10*pulse}px rgba(255,210,70,.75)`;
+    fuelFill.style.backgroundColor='#ff4f45';
+    fuelFill.style.filter=`brightness(${1.0+.38*pulse}) saturate(1.35)`;
+    fuelFill.style.boxShadow=`0 0 ${8+10*pulse}px rgba(255,65,55,.82)`;
   }else{
     fuelFill.style.opacity='1';
+    fuelFill.style.backgroundColor='#f3d35c';
     fuelFill.style.filter='';
     fuelFill.style.boxShadow='';
   }
@@ -512,7 +515,7 @@ function spawnCenterObstacle(y=-88){
   for(let attempt=0;attempt<28;attempt++){
     const spec=randomObstacleSpec();
     const center=(cfg.xMin+cfg.xMax)/2;
-    const spread=(cfg.xMax-cfg.xMin)*.18;
+    const spread=(cfg.xMax-cfg.xMin)*(state.levelIndex===0?.11:.18);
     const x=center+(Math.random()*2-1)*spread;
     if(!canPlaceObstacle(spec,x,y,14))continue;
     const rot=spec.type==='rock'?(Math.random()-.5)*.40:spec.type==='buoy'?(Math.random()-.5)*.12:(Math.random()-.5)*.16;
@@ -543,8 +546,17 @@ function spawnWaterVariedTriple(){
 function spawnObstaclePattern(){
   const p=progress01(),r=Math.random();let fns;
   if(state.levelIndex===0){
-    fns=p>.58&&r<.30?[spawnGatePattern,spawnSlalomPattern,spawnEdgePairPattern,spawnOffsetPairPattern,spawnSingleObstacle]:
-        p>.28&&r<.68?[spawnSlalomPattern,spawnEdgePairPattern,spawnOffsetPairPattern,spawnGatePattern,spawnSingleObstacle]:[spawnEdgePairPattern,spawnOffsetPairPattern,spawnSingleObstacle,spawnGatePattern];
+    // Land: neben Rand-/Slalommustern regelmäßig auch ein Hindernis direkt in der Fahrbahnmitte.
+    if(p<.28){
+      fns=r<.38?[spawnCenterObstacle,spawnSingleObstacle,spawnGatePattern,spawnEdgePairPattern]:
+          [spawnEdgePairPattern,spawnOffsetPairPattern,spawnSingleObstacle,spawnCenterObstacle,spawnGatePattern];
+    }else if(p<.58){
+      fns=r<.34?[spawnCenterObstacle,spawnSlalomPattern,spawnSingleObstacle,spawnGatePattern]:
+          [spawnSlalomPattern,spawnEdgePairPattern,spawnOffsetPairPattern,spawnCenterObstacle,spawnSingleObstacle];
+    }else{
+      fns=r<.30?[spawnCenterObstacle,spawnGatePattern,spawnSlalomPattern,spawnSingleObstacle]:
+          [spawnGatePattern,spawnSlalomPattern,spawnEdgePairPattern,spawnOffsetPairPattern,spawnCenterObstacle,spawnSingleObstacle];
+    }
   }else if(state.levelIndex===1){
     // Anfang: bewusst auch Mitte. Später: wechselnde Einzel-, Zweier- und Dreiermuster mit variablen Abständen.
     if(p<.18) fns=[spawnCenterObstacle,spawnSingleObstacle,spawnWaterVariedPair,spawnGatePattern];
@@ -1226,8 +1238,18 @@ function drawOverlay(){
     ctx.fillStyle='rgba(5,10,8,.25)';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.font='bold 76px system-ui';ctx.fillStyle='#f3d35c';ctx.fillText(String(state.countdown),W/2,H/2+26);ctx.textAlign='left';
   }else if(state.mode==='paused'){
     ctx.fillStyle='rgba(5,10,8,.48)';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.font='bold 38px system-ui';ctx.fillStyle='#f3d35c';ctx.fillText('PAUSE',W/2,H/2);ctx.textAlign='left';
-  }else if(['win','fuelFail','fail'].includes(state.mode)){
-    const isWin=state.mode==='win',boxH=138,boxY=H-boxH-28;ctx.fillStyle='rgba(0,0,0,.58)';ctx.fillRect(W/2-330,boxY,660,boxH);ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 34px system-ui';ctx.fillText(isWin?'ALLE 3 LEVEL GESCHAFFT!':state.mode==='fuelFail'?'TANK LEER!':'GECRASHED!',W/2,boxY+38);ctx.font='20px system-ui';ctx.fillStyle=isWin?'#f3d35c':'#ffaaaa';ctx.fillText(isWin?'Spiono hat die Rallye geschafft.':state.mode==='fuelFail'?(state.levelIndex===1?'Spiono säuft ohne Fuel ab.':state.levelIndex===2?'Spiono stürzt ohne Fuel ab.':'Spiono bleibt ohne Fuel liegen.'):'Spiono ist auf der Strecke geblieben.',W/2,boxY+74);ctx.font='16px system-ui';ctx.fillStyle='#ddd';ctx.fillText('Leertaste für einen neuen Versuch',W/2,boxY+108);ctx.textAlign='left';
+  }else if(state.mode==='win'){
+    // Winscreen wie bei „Flucht“: leichte Vollbild-Abdunklung und mittige Textbox.
+    ctx.fillStyle='rgba(0,0,0,.28)';ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='rgba(0,0,0,.58)';ctx.fillRect(W/2-330,220,660,175);
+    ctx.textAlign='center';
+    ctx.fillStyle='#fff';ctx.font='bold 42px system-ui';
+    ctx.fillText('* * * JAAA, JUHUUUU * * *',W/2,270);
+    ctx.font='22px system-ui';ctx.fillStyle='#f3d35c';
+    ctx.fillText('Spiono kann seine Freunde rechtzeitig vor Prof. Dr. Tyrannus Greif warnen.',W/2,315);
+    ctx.textAlign='left';
+  }else if(['fuelFail','fail'].includes(state.mode)){
+    const boxH=138,boxY=H-boxH-28;ctx.fillStyle='rgba(0,0,0,.58)';ctx.fillRect(W/2-330,boxY,660,boxH);ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 34px system-ui';ctx.fillText(state.mode==='fuelFail'?'TANK LEER!':'GECRASHED!',W/2,boxY+38);ctx.font='20px system-ui';ctx.fillStyle='#ffaaaa';ctx.fillText(state.mode==='fuelFail'?(state.levelIndex===1?'Spiono säuft ohne Fuel ab.':state.levelIndex===2?'Spiono stürzt ohne Fuel ab.':'Spiono bleibt ohne Fuel liegen.'):'Spiono ist auf der Strecke geblieben.',W/2,boxY+74);ctx.font='16px system-ui';ctx.fillStyle='#ddd';ctx.fillText('Leertaste für einen neuen Versuch',W/2,boxY+108);ctx.textAlign='left';
   }
 }
 function draw(now){
