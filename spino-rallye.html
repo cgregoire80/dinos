@@ -157,43 +157,43 @@ const SPRITES={
   ],
   startScreen:loadSprite('spino-rallye-assets/spino_start_screen.webp'),
   winScreen:loadSprite('spino-rallye-assets/spino_win_screen.webp'),
-  bonusWinScreen:loadSprite('spino-rallye-assets/spino_win_screen4.png'),
+  bonusWinScreen:loadSprite('spino-rallye-assets/spino_win_screen4.webp'),
   failScreens:[
     loadSprite('spino-rallye-assets/spino_fail_screen1.webp'),
     loadSprite('spino-rallye-assets/spino_fail_screen2.webp'),
     loadSprite('spino-rallye-assets/spino_fail_screen3.webp'),
-    loadSprite('spino-rallye-assets/spino_fail_screen4.png')
+    loadSprite('spino-rallye-assets/spino_fail_screen4.webp')
   ],
   explosions:[
-    loadSprite('spino-rallye-assets/sprite_explosion1.png'),
-    loadSprite('spino-rallye-assets/sprite_explosion2.png'),
-    loadSprite('spino-rallye-assets/sprite_explosion3.png'),
-    loadSprite('spino-rallye-assets/sprite_explosion4.png')
+    loadSprite('spino-rallye-assets/sprite_explosion1.webp'),
+    loadSprite('spino-rallye-assets/sprite_explosion2.webp'),
+    loadSprite('spino-rallye-assets/sprite_explosion3.webp'),
+    loadSprite('spino-rallye-assets/sprite_explosion4.webp')
   ],
   lava:[
-    loadSprite('spino-rallye-assets/sprite_lava1.png'),
-    loadSprite('spino-rallye-assets/sprite_lava2.png'),
-    loadSprite('spino-rallye-assets/sprite_lava3.png'),
-    loadSprite('spino-rallye-assets/sprite_lava4.png')
+    loadSprite('spino-rallye-assets/sprite_lava1.webp'),
+    loadSprite('spino-rallye-assets/sprite_lava2.webp'),
+    loadSprite('spino-rallye-assets/sprite_lava3.webp'),
+    loadSprite('spino-rallye-assets/sprite_lava4.webp')
   ],
   lavaBurst:[
-    loadSprite('spino-rallye-assets/sprite_lavaburst1.png'),
-    loadSprite('spino-rallye-assets/sprite_lavaburst2.png'),
-    loadSprite('spino-rallye-assets/sprite_lavaburst3.png')
+    loadSprite('spino-rallye-assets/sprite_lavaburst1.webp'),
+    loadSprite('spino-rallye-assets/sprite_lavaburst2.webp'),
+    loadSprite('spino-rallye-assets/sprite_lavaburst3.webp')
   ],
   wildboars:[
     loadSprite('spino-rallye-assets/sprite_boar1.webp'),
     loadSprite('spino-rallye-assets/sprite_boar2.webp')
   ],
   wind:loadSprite('spino-rallye-assets/sprite_wind.webp'),
-  duck:loadSprite('spino-rallye-assets/sprite_quitscheentchen.png'),
-  bomb:loadSprite('spino-rallye-assets/sprite_bomb.png'),
+  duck:loadSprite('spino-rallye-assets/sprite_quitscheentchen.webp'),
+  bomb:loadSprite('spino-rallye-assets/sprite_bomb.webp'),
   greifBomb:[
-    loadSprite('spino-rallye-assets/sprite_greif_bomb1.png'),
-    loadSprite('spino-rallye-assets/sprite_greif_bomb2.png'),
-    loadSprite('spino-rallye-assets/sprite_greif_bomb3.png')
+    loadSprite('spino-rallye-assets/sprite_greif_bomb1.webp'),
+    loadSprite('spino-rallye-assets/sprite_greif_bomb2.webp'),
+    loadSprite('spino-rallye-assets/sprite_greif_bomb3.webp')
   ],
-  minecart:loadSprite('spino-rallye-assets/sprite_spiono_cart.png'),
+  minecart:loadSprite('spino-rallye-assets/sprite_spiono_cart.webp'),
   stego:loadSprite('spino-rallye-assets/sprite_stego.webp'),
   triceratops:loadSprite('spino-rallye-assets/sprite_triceratops.webp'),
   jeep:loadSprite('spino-rallye-assets/sprite_spiono_jeep.webp'),
@@ -202,7 +202,7 @@ const SPRITES={
   bgLand01:loadSprite('spino-rallye-assets/backround_01.webp'),
   bgWater02:loadSprite('spino-rallye-assets/backround_02.webp'),
   bgSky03:loadSprite('spino-rallye-assets/backround_03.webp'),
-  bgBonus04:loadSprite('spino-rallye-assets/backround_04.png'),
+  bgBonus04:loadSprite('spino-rallye-assets/backround_04.webp'),
   river:loadSprite('spino-rallye-assets/sprite_river.webp'),
   bridge:loadSprite('spino-rallye-assets/sprite_bridge.webp'),
   crocodile:loadSprite('spino-rallye-assets/sprite_crocodile.webp'),
@@ -478,7 +478,7 @@ function updateHud(){
     fuelFill.style.boxShadow='';
   }
   duckHud.style.display=bonusDuckCollected?'inline-flex':'none';
-  duckHudImg.src='spino-rallye-assets/sprite_quitscheentchen.png';
+  duckHudImg.src='spino-rallye-assets/sprite_quitscheentchen.webp';
 }
 function pointInRect(px,py,r){return px>=r.x&&px<=r.x+r.w&&py>=r.y&&py<=r.y+r.h;}
 function canvasPosFromEvent(e){
