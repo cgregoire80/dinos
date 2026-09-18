@@ -55,6 +55,7 @@
     <div class="items">
       <span class="item">💥 TREFFER <span class="state" id="hitState">0/3</span></span>
       <span class="item fuel-wrap">⛽ FUEL <span class="fuel-gauge"><span class="fuel-fill" id="fuelFill"></span></span></span>
+      <span class="item" id="duckHud" style="display:none;padding:5px 8px"><img id="duckHudImg" alt="" style="width:24px;height:24px;object-fit:contain;display:block"></span>
     </div>
     <button id="restart">Neu starten</button>
   </div>
@@ -67,12 +68,14 @@
   </div>
 </div>
 <script>
-// v36: WebP-Umstellung + HUD/Fuelwarnung + Level-1-Mitte + Winscreen im Flucht-Stil
+// v45: Greif-Sprüche + Greif scrollt mit Hintergrund + Felsen ohne Glow
 const canvas=document.getElementById('game');
 const ctx=canvas.getContext('2d');
 const restartBtn=document.getElementById('restart');
 const hitState=document.getElementById('hitState');
 const fuelFill=document.getElementById('fuelFill');
+const duckHud=document.getElementById('duckHud');
+const duckHudImg=document.getElementById('duckHudImg');
 const W=canvas.width,H=canvas.height;
 
 const LEVEL_SECONDS=50;
@@ -109,20 +112,38 @@ const LEVELS=[
     moveX:452, moveY:386, steerLag:0.20, edgeHit:false,
     gapStart:[270,385], gapEnd:[175,270],
     creekArrivals:[]
+  },
+  {
+    name:'BONUS', vehicle:'minecart', baseScroll:295, endSpeed:1.55,
+    xMin:(W-400)/2, xMax:(W+400)/2,
+    moveX:478, moveY:404, steerLag:0.12, edgeHit:true,
+    gapStart:[215,300], gapEnd:[135,205],
+    creekArrivals:[]
   }
 ];
+const BONUS_ROAD_W=400;
 
 const VEHICLES={
   jeep:{drawW:93,drawH:122,hitW:52,hitH:78}, // ca. 20 % kleiner als v10
   jetski:{drawW:86,drawH:142,hitW:54,hitH:104},
-  jet:{drawW:168,drawH:142,hitW:112,hitH:86}
+  jet:{drawW:168,drawH:142,hitW:112,hitH:86},
+  minecart:{drawW:126,drawH:118,hitW:82,hitH:76}
 };
 
 let keys={left:false,right:false,up:false,down:false};
 let last=performance.now();
 let state;
+let bonusDuckCollected=false;
+let testNoCollisions=false;
 
 function loadSprite(src){const img=new Image();img.src=src;return img;}
+function loadSpriteAny(...sources){
+  const img=new Image();
+  let idx=0;
+  img.onerror=()=>{if(idx<sources.length-1){idx++;img.src=sources[idx];}};
+  img.src=sources[0];
+  return img;
+}
 const SPRITES={
   fuels:[
     loadSprite('spino-rallye-assets/sprite_fuel1.webp'),
@@ -136,16 +157,43 @@ const SPRITES={
   ],
   startScreen:loadSprite('spino-rallye-assets/spino_start_screen.webp'),
   winScreen:loadSprite('spino-rallye-assets/spino_win_screen.webp'),
+  bonusWinScreen:loadSprite('spino-rallye-assets/spino_win_screen4.png'),
   failScreens:[
     loadSprite('spino-rallye-assets/spino_fail_screen1.webp'),
     loadSprite('spino-rallye-assets/spino_fail_screen2.webp'),
-    loadSprite('spino-rallye-assets/spino_fail_screen3.webp')
+    loadSprite('spino-rallye-assets/spino_fail_screen3.webp'),
+    loadSprite('spino-rallye-assets/spino_fail_screen4.png')
+  ],
+  explosions:[
+    loadSprite('spino-rallye-assets/sprite_explosion1.png'),
+    loadSprite('spino-rallye-assets/sprite_explosion2.png'),
+    loadSprite('spino-rallye-assets/sprite_explosion3.png'),
+    loadSprite('spino-rallye-assets/sprite_explosion4.png')
+  ],
+  lava:[
+    loadSprite('spino-rallye-assets/sprite_lava1.png'),
+    loadSprite('spino-rallye-assets/sprite_lava2.png'),
+    loadSprite('spino-rallye-assets/sprite_lava3.png'),
+    loadSprite('spino-rallye-assets/sprite_lava4.png')
+  ],
+  lavaBurst:[
+    loadSprite('spino-rallye-assets/sprite_lavaburst1.png'),
+    loadSprite('spino-rallye-assets/sprite_lavaburst2.png'),
+    loadSprite('spino-rallye-assets/sprite_lavaburst3.png')
   ],
   wildboars:[
     loadSprite('spino-rallye-assets/sprite_boar1.webp'),
     loadSprite('spino-rallye-assets/sprite_boar2.webp')
   ],
   wind:loadSprite('spino-rallye-assets/sprite_wind.webp'),
+  duck:loadSprite('spino-rallye-assets/sprite_quitscheentchen.png'),
+  bomb:loadSprite('spino-rallye-assets/sprite_bomb.png'),
+  greifBomb:[
+    loadSprite('spino-rallye-assets/sprite_greif_bomb1.png'),
+    loadSprite('spino-rallye-assets/sprite_greif_bomb2.png'),
+    loadSprite('spino-rallye-assets/sprite_greif_bomb3.png')
+  ],
+  minecart:loadSprite('spino-rallye-assets/sprite_spiono_cart.png'),
   stego:loadSprite('spino-rallye-assets/sprite_stego.webp'),
   triceratops:loadSprite('spino-rallye-assets/sprite_triceratops.webp'),
   jeep:loadSprite('spino-rallye-assets/sprite_spiono_jeep.webp'),
@@ -154,6 +202,7 @@ const SPRITES={
   bgLand01:loadSprite('spino-rallye-assets/backround_01.webp'),
   bgWater02:loadSprite('spino-rallye-assets/backround_02.webp'),
   bgSky03:loadSprite('spino-rallye-assets/backround_03.webp'),
+  bgBonus04:loadSprite('spino-rallye-assets/backround_04.png'),
   river:loadSprite('spino-rallye-assets/sprite_river.webp'),
   bridge:loadSprite('spino-rallye-assets/sprite_bridge.webp'),
   crocodile:loadSprite('spino-rallye-assets/sprite_crocodile.webp'),
@@ -191,7 +240,7 @@ const BIRD_DRAW_SIZES=[74,84,96];
 const BIRD_HITBOXES=[{w:54,h:30},{w:62,h:34},{w:74,h:40}];
 const BUOY_DRAW_SIZES=[98,82,92];
 const BUOY_HITBOXES=[{w:61,h:76},{w:50,h:62},{w:56,h:70}];
-const SFX_VOLUME_MULTIPLIER=1.4;
+const SFX_VOLUME_MULTIPLIER=2.0;
 const TREE_HITBOXES=[{w:108,h:50},{w:110,h:46},{w:104,h:56}];
 const ROCK_HITBOXES=[{w:62,h:58},{w:74,h:44},{w:58,h:70}];
 const SPAWN_PAD_FUEL_OBSTACLE=18;
@@ -208,6 +257,27 @@ const RIVER_LEADING_COLLISION_INSET=34;
 const KITE_W=110.4,KITE_H=129.6,KITE_HIT_W=74.4,KITE_HIT_H=103.2;
 const WILDBOAR_W=104,WILDBOAR_H=64,WILDBOAR_HIT_W=84,WILDBOAR_HIT_H=42;
 const WILDBOAR_LANES=[160,235,310,385,460];
+const DUCK_W=50,DUCK_H=42,DUCK_HIT_W=38,DUCK_HIT_H=34;
+const BONUS_BADGE={x:W-50-136,y:50,w:136,h:98};
+const BONUS_GREIF_COUNT=5;
+const BONUS_LAVA_COUNT=12;
+const BONUS_AMBIENT_EXPLOSION_COUNT=100;
+const BONUS_BOMB_W=42,BONUS_BOMB_H=42;
+const BONUS_BOMB_TARGET_CX=W/2,BONUS_BOMB_TARGET_CY=300,BONUS_BOMB_TARGET_R=200,BONUS_BOMB_BLAST_R=100;
+const BONUS_LAVA_W=188,BONUS_LAVA_H=92,BONUS_LAVA_HIT_W=132,BONUS_LAVA_HIT_H=54;
+const GREIF_DRAW_W=156,GREIF_DRAW_H=156;
+const GREIF_TAUNTS=[
+  'Halt, Spiono! Das sind meine Entchen, du liederlicher Dieb!',
+  'Du kommst mir nicht davon, du schuppiger Langfinger!',
+  'Hände weg von meiner kostbaren Quietscheentchen-Sammlung!',
+  'Zurück mit meinen Entchen, oder es knallt gewaltig!',
+  'Niemand plündert Prof. Dr. Tyrannus Greifs Sammlung ungestraft!'
+];
+function shuffledCopy(arr){
+  const a=[...arr];
+  for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
+  return a;
+}
 
 function spriteReady(img){return img&&img.complete&&img.naturalWidth>0;}
 function fitByHeight(img,targetH,fallbackW=targetH){
@@ -254,15 +324,26 @@ function sfx(name){
   else if(name==='hit'){tone(150,.12,'sawtooth',.045);tone(95,.18,'square',.035,.05)}
   else if(name==='fuel'){tone(620,.07,'triangle',.03);tone(840,.10,'triangle',.035,.07)}
   else if(name==='medipac'){tone(520,.07,'sine',.03);tone(700,.08,'sine',.035,.06);tone(920,.11,'triangle',.03,.13)}
+  else if(name==='bonus'){tone(660,.07,'triangle',.035);tone(880,.09,'triangle',.04,.07);tone(1100,.13,'sine',.035,.15)}
+  else if(name==='bomb'){tone(110,.16,'sawtooth',.050);tone(72,.24,'square',.036,.035)}
   else if(name==='jump'){tone(280,.07,'triangle',.03);tone(430,.09,'triangle',.035,.045);tone(620,.08,'sine',.025,.11)}
   else if(name==='level'){tone(520,.08,'triangle',.03);tone(700,.09,'triangle',.035,.08);tone(900,.12,'triangle',.04,.17)}
   else if(name==='fail'){tone(180,.14,'square',.04);tone(120,.20,'sawtooth',.035,.10)}
   else if(name==='win'){tone(440,.08,'triangle',.03);tone(660,.10,'triangle',.035,.09);tone(880,.15,'triangle',.04,.19)}
 }
 
-function makeFuelSchedule(){
-  return Array.from({length:FUEL_ITEMS_TOTAL},(_,i)=>{
-    const arrival=7.5+i*5+(Math.random()*1.5-.75);
+function makeFuelSchedule(count=FUEL_ITEMS_TOTAL){
+  if(count===FUEL_ITEMS_TOTAL){
+    return Array.from({length:count},(_,i)=>{
+      const arrival=7.5+i*5+(Math.random()*1.5-.75);
+      return {spawnAt:Math.max(.8,arrival-FUEL_TRAVEL_LEAD),spawned:false};
+    });
+  }
+  // Bonus-Level: zwei zusätzliche Fuel-Items, über den ganzen Level verteilt.
+  const firstArrival=5.8,lastArrival=46.0;
+  return Array.from({length:count},(_,i)=>{
+    const t=count<=1?0:i/(count-1);
+    const arrival=firstArrival+(lastArrival-firstArrival)*t+(Math.random()*1.2-.6);
     return {spawnAt:Math.max(.8,arrival-FUEL_TRAVEL_LEAD),spawned:false};
   });
 }
@@ -287,11 +368,15 @@ function makeWindGusts(){
   let t=5.8+Math.random()*1.6;
   for(let i=0;i<5;i++){
     const dur=1.9+Math.random()*1.0;
-    const force=(Math.random()<.5?-1:1)*(82+Math.random()*38);
+    const force=(Math.random()<.5?-1:1)*(82+Math.random()*38)*1.20;
     gusts.push({start:t,dur,force});
     t+=6.2+Math.random()*2.5;
   }
   return gusts;
+}
+function makeDuckSchedule(){
+  // Genau ein Bonus-Entchen in Level 2; Spawn innerhalb von 70–90 % des Levels.
+  return {spawnAt:LEVEL_SECONDS*(.70+Math.random()*.16),spawned:false};
 }
 function makeCrossingSchedule(count,start=6,end=48){
   const arr=[];
@@ -303,19 +388,42 @@ function makeCrossingSchedule(count,start=6,end=48){
   }
   return arr;
 }
+function makeTimedSchedule(count,start=6,end=48,jitter=.22){
+  const arr=[];
+  const span=(end-start)/count;
+  for(let i=0;i<count;i++){
+    const center=start+span*(i+.5);
+    arr.push({spawnAt:Math.max(1.2,center+(Math.random()*2-1)*(span*jitter)),spawned:false});
+  }
+  return arr;
+}
+function makeAmbientExplosionSchedule(count=BONUS_AMBIENT_EXPLOSION_COUNT,start=.8,end=49.2){
+  // 100 rein optische Randexplosionen: zeitlich bewusst unregelmäßig,
+  // aber gleichmäßig auf linke und rechte Seite verteilt.
+  const sides=[];
+  for(let i=0;i<count;i++)sides.push(i<count/2?'left':'right');
+  for(let i=sides.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[sides[i],sides[j]]=[sides[j],sides[i]];}
+  const times=[];
+  for(let i=0;i<count;i++)times.push(start+Math.random()*(end-start));
+  times.sort((a,b)=>a-b);
+  return times.map((spawnAt,i)=>({spawnAt,spawned:false,side:sides[i]}));
+}
 function vehicleCfg(){return VEHICLES[LEVELS[state.levelIndex].vehicle];}
 function levelCfg(){return LEVELS[state.levelIndex];}
 function progress01(){return Math.min(1,state.elapsed/LEVEL_SECONDS);}
 function lerp(a,b,t){return a+(b-a)*t;}
 
 function initLevel(levelIndex,mode='start'){
-  const keepLevel=Math.max(0,Math.min(2,levelIndex));
+  const keepLevel=Math.max(0,Math.min(3,levelIndex));
   state={
     levelIndex:keepLevel,mode,countdown:3,countdownUntil:0,
     elapsed:0,roadOffset:0,jeepX:W/2,jeepY:H-120,jeepTilt:0,
     jumping:false,jumpElapsed:0,sideEdgeContact:false,steerX:0,
     hits:0,invuln:0,obstacles:[],fuelItems:[],medipacItems:[],creeks:[],fuel:FUEL_MAX,fuelCollected:0,
+    duck:null,duckSchedule:null,duckMessageUntil:0,
     crocodiles:[],kites:[],wildboars:[],crocSchedule:[],kiteSchedule:[],wildboarSchedule:[],
+    lavaBursts:[],greifs:[],bombs:[],explosions:[],bonusLavaSchedule:[],greifBombSchedule:[],bonusAmbientExplosionSchedule:[],
+    greifTaunts:[],greifMessage:'',greifMessageUntil:0,
     fuelSchedule:[],medipacSchedule:null,creekSchedule:[],spawnDistance:120,distanceTravelled:0,shake:0,flash:0,
     dustPatches:[],windGusts:[],windForce:0,
     stego:null,stegoSpawned:false,stegoMessageUntil:0,
@@ -323,8 +431,8 @@ function initLevel(levelIndex,mode='start'){
     nearMissUntil:0,nearMissCooldown:0,
     exitSpeed:0,exitFinal:false
   };
-  state.fuelSchedule=makeFuelSchedule();
-  state.medipacSchedule=makeMedipacSchedule();
+  state.fuelSchedule=makeFuelSchedule(keepLevel===3?FUEL_ITEMS_TOTAL+2:FUEL_ITEMS_TOTAL);
+  state.medipacSchedule=keepLevel===3?null:makeMedipacSchedule();
   state.creekSchedule=makeCreekSchedule();
   if(keepLevel===0){
     state.wildboarSchedule=[
@@ -335,15 +443,22 @@ function initLevel(levelIndex,mode='start'){
   }
   if(keepLevel===1){
     state.crocSchedule=makeCrossingSchedule(5,6,43);
+    state.duckSchedule=makeDuckSchedule();
     // Von den fünf Krokodilen queren zwei bewusst im unteren Bildbereich.
     const lowerSlots=[1,3];
     state.crocSchedule.forEach((c,i)=>c.lowerCrossing=lowerSlots.includes(i));
   }
   if(keepLevel===2){state.windGusts=makeWindGusts();state.kiteSchedule=makeCrossingSchedule(5,8,50);}
+  if(keepLevel===3){
+    state.bonusLavaSchedule=makeTimedSchedule(BONUS_LAVA_COUNT,5.5,47,.20);
+    state.greifBombSchedule=makeTimedSchedule(BONUS_GREIF_COUNT,7.5,46,.16);
+    state.bonusAmbientExplosionSchedule=makeAmbientExplosionSchedule();
+    state.greifTaunts=shuffledCopy(GREIF_TAUNTS);
+  }
   keys.left=keys.right=keys.up=keys.down=false;
   updateHud();
 }
-function reset(){initLevel(0,'start');}
+function reset(){bonusDuckCollected=false;initLevel(0,'start');}
 reset();
 
 function updateHud(){
@@ -362,7 +477,15 @@ function updateHud(){
     fuelFill.style.filter='';
     fuelFill.style.boxShadow='';
   }
+  duckHud.style.display=bonusDuckCollected?'inline-flex':'none';
+  duckHudImg.src='spino-rallye-assets/sprite_quitscheentchen.png';
 }
+function pointInRect(px,py,r){return px>=r.x&&px<=r.x+r.w&&py>=r.y&&py<=r.y+r.h;}
+function canvasPosFromEvent(e){
+  const rect=canvas.getBoundingClientRect();
+  return {x:(e.clientX-rect.left)*(W/rect.width),y:(e.clientY-rect.top)*(H/rect.height)};
+}
+function openBonusPreview(){state.mode='bonusIntro';canvas.style.cursor='default';}
 function startCountdown(){
   if(['start','win','fail','fuelFail'].includes(state.mode)){
     if(['win','fail','fuelFail'].includes(state.mode)) reset();
@@ -379,7 +502,7 @@ function startInterLevelCountdown(levelIndex){
 function beginLevelExit(){
   state.mode='levelExit';
   state.exitSpeed=760;
-  state.exitFinal=state.levelIndex>=2;
+  state.exitFinal=state.levelIndex===2?'main':state.levelIndex===3?'bonus':false;
   state.jumping=false;
   state.jumpElapsed=0;
   keys.left=keys.right=keys.up=keys.down=false;
@@ -393,6 +516,9 @@ function kiteRect(k){return{x:k.x-KITE_HIT_W/2,y:k.y-KITE_HIT_H/2,w:KITE_HIT_W,h
 function wildboarRect(b){return{x:b.x-WILDBOAR_HIT_W/2,y:b.y-WILDBOAR_HIT_H/2,w:WILDBOAR_HIT_W,h:WILDBOAR_HIT_H};}
 function fuelRect(f){const s=fuelDrawSize();return{x:f.x-s.w*.40,y:f.y-s.h*.42,w:s.w*.80,h:s.h*.84};}
 function medipacRect(m){const s=medipacDrawSize();return{x:m.x-s.w*.42,y:m.y-s.h*.42,w:s.w*.84,h:s.h*.84};}
+function duckRect(d){return{x:d.x-DUCK_HIT_W/2,y:d.y-DUCK_HIT_H/2,w:DUCK_HIT_W,h:DUCK_HIT_H};}
+function bombRect(b){return{x:b.x-BONUS_BOMB_W/2,y:b.y-BONUS_BOMB_H/2,w:BONUS_BOMB_W,h:BONUS_BOMB_H};}
+function lavaBurstRect(l){return{x:l.x-BONUS_LAVA_HIT_W/2,y:l.y-BONUS_LAVA_HIT_H/2,w:BONUS_LAVA_HIT_W,h:BONUS_LAVA_HIT_H};}
 function creekRect(c){const h=riverDrawH();return{x:0,y:c.y-h/2,w:W,h};}
 function creekWaterHitRects(c){
   const riverH=riverDrawH(),bridge=bridgeDrawSize(),waterY=c.y-riverH/2;
@@ -412,6 +538,10 @@ function distanceBetweenRects(a,b){
 function nearestDistance(rect,items,rectFn){let best=Infinity;for(const item of items)best=Math.min(best,distanceBetweenRects(rect,rectFn(item)));return best;}
 
 function randomObstacleSpec(){
+  if(state.levelIndex===3){
+    const variant=Math.floor(Math.random()*3);
+    return{type:'lavaRock',variant,hit:ROCK_HITBOXES[variant],drawSize:ROCK_DRAW_SIZE+10};
+  }
   if(state.levelIndex===2){
     const type=Math.random()<.58?'cloud':'bird';
     const variant=Math.floor(Math.random()*3);
@@ -439,6 +569,7 @@ function canPlaceObstacle(spec,x,y,pad=14){
   const r={x:x-spec.hit.w/2,y:y-spec.hit.h/2,w:spec.hit.w,h:spec.hit.h};
   if(overlapsAny(r,state.fuelItems,fuelRect,SPAWN_PAD_FUEL_OBSTACLE))return false;
   if(overlapsAny(r,state.medipacItems,medipacRect,SPAWN_PAD_FUEL_OBSTACLE))return false;
+  if(state.duck&&rectHit(paddedRect(r,12),duckRect(state.duck)))return false;
   if(overlapsAny(r,state.creeks,creekRect,SPAWN_PAD_CREEK_OBSTACLE))return false;
   if(overlapsAny(r,state.obstacles,obstacleRect,pad))return false;
   return true;
@@ -543,31 +674,61 @@ function spawnWaterVariedTriple(){
   const ok3=ok2&&spawnSingleObstacle(y1-d1-d2,layout[2]);
   if(!(ok1&&ok2&&ok3)){state.obstacles.length=startLen;return false;}return true;
 }
+function spawnLandScatterPattern(){
+  const startLen=state.obstacles.length;
+  const roll=Math.random();
+  const count=roll<.26?1:roll<.68?2:3;
+  const biases=[null,'left','right'];
+  let y=-78-Math.random()*34,lastBias='';
+  for(let i=0;i<count;i++){
+    let bias=biases[Math.floor(Math.random()*biases.length)];
+    if(i>0&&bias===lastBias&&Math.random()<.72)bias=biases[(biases.indexOf(bias)+1+Math.floor(Math.random()*2))%biases.length];
+    if(!spawnSingleObstacle(y,bias)){state.obstacles.length=startLen;return false;}
+    lastBias=bias;
+    y-=78+Math.random()*118;
+  }
+  return true;
+}
 function spawnObstaclePattern(){
   const p=progress01(),r=Math.random();let fns;
   if(state.levelIndex===0){
-    // Land: neben Rand-/Slalommustern regelmäßig auch ein Hindernis direkt in der Fahrbahnmitte.
+    // Land: ab der Mitte keine dominierenden Zweier-Rhythmen mehr, sondern wechselnde Einzel-, Streu-, Slalom- und Dreierbilder.
     if(p<.28){
-      fns=r<.38?[spawnCenterObstacle,spawnSingleObstacle,spawnGatePattern,spawnEdgePairPattern]:
-          [spawnEdgePairPattern,spawnOffsetPairPattern,spawnSingleObstacle,spawnCenterObstacle,spawnGatePattern];
+      if(r<.28)fns=[spawnSingleObstacle,spawnCenterObstacle,spawnLandScatterPattern,spawnSlalomPattern];
+      else if(r<.56)fns=[spawnCenterObstacle,spawnLandScatterPattern,spawnSingleObstacle,spawnGatePattern];
+      else if(r<.82)fns=[spawnLandScatterPattern,spawnSingleObstacle,spawnSlalomPattern,spawnCenterObstacle];
+      else fns=[spawnGatePattern,spawnSingleObstacle,spawnLandScatterPattern,spawnCenterObstacle];
     }else if(p<.58){
-      fns=r<.34?[spawnCenterObstacle,spawnSlalomPattern,spawnSingleObstacle,spawnGatePattern]:
-          [spawnSlalomPattern,spawnEdgePairPattern,spawnOffsetPairPattern,spawnCenterObstacle,spawnSingleObstacle];
+      if(r<.24)fns=[spawnLandScatterPattern,spawnSingleObstacle,spawnCenterObstacle,spawnSlalomPattern];
+      else if(r<.45)fns=[spawnSingleObstacle,spawnCenterObstacle,spawnLandScatterPattern,spawnTriplePattern];
+      else if(r<.66)fns=[spawnCenterObstacle,spawnSlalomPattern,spawnLandScatterPattern,spawnSingleObstacle];
+      else if(r<.86)fns=[spawnSlalomPattern,spawnTriplePattern,spawnSingleObstacle,spawnLandScatterPattern];
+      else fns=[spawnGatePattern,spawnLandScatterPattern,spawnSingleObstacle,spawnCenterObstacle];
     }else{
-      fns=r<.30?[spawnCenterObstacle,spawnGatePattern,spawnSlalomPattern,spawnSingleObstacle]:
-          [spawnGatePattern,spawnSlalomPattern,spawnEdgePairPattern,spawnOffsetPairPattern,spawnCenterObstacle,spawnSingleObstacle];
+      if(r<.30)fns=[spawnLandScatterPattern,spawnSingleObstacle,spawnCenterObstacle,spawnTriplePattern];
+      else if(r<.50)fns=[spawnSingleObstacle,spawnLandScatterPattern,spawnSlalomPattern,spawnCenterObstacle];
+      else if(r<.69)fns=[spawnCenterObstacle,spawnTriplePattern,spawnLandScatterPattern,spawnSingleObstacle];
+      else if(r<.88)fns=[spawnSlalomPattern,spawnLandScatterPattern,spawnSingleObstacle,spawnTriplePattern];
+      else fns=[spawnGatePattern,spawnLandScatterPattern,spawnSingleObstacle,spawnCenterObstacle];
     }
   }else if(state.levelIndex===1){
     // Anfang: bewusst auch Mitte. Später: wechselnde Einzel-, Zweier- und Dreiermuster mit variablen Abständen.
     if(p<.18) fns=[spawnCenterObstacle,spawnSingleObstacle,spawnWaterVariedPair,spawnGatePattern];
     else if(p<.50) fns=r<.45?[spawnWaterVariedPair,spawnCenterObstacle,spawnSingleObstacle,spawnGatePattern]:[spawnSingleObstacle,spawnWaterVariedTriple,spawnWaterVariedPair,spawnSlalomPattern];
     else fns=r<.34?[spawnWaterVariedTriple,spawnSingleObstacle,spawnGatePattern,spawnWaterVariedPair]:r<.67?[spawnSingleObstacle,spawnSlalomPattern,spawnWaterVariedPair,spawnCenterObstacle]:[spawnGatePattern,spawnWaterVariedTriple,spawnSingleObstacle,spawnWaterVariedPair];
-  }else{
+  }else if(state.levelIndex===2){
     // In der Luft bewusst abwechslungsreich: Einzel-, Paar-, Tor-, Slalom- und Dreiermuster.
     if(r<.20)fns=[spawnSingleObstacle,spawnEdgePairPattern,spawnGatePattern];
     else if(r<.43)fns=[spawnTriplePattern,spawnSlalomPattern,spawnGatePattern,spawnSingleObstacle];
     else if(r<.68)fns=[spawnGatePattern,spawnEdgePairPattern,spawnSingleObstacle,spawnTriplePattern];
     else fns=[spawnSlalomPattern,spawnOffsetPairPattern,spawnSingleObstacle,spawnTriplePattern];
+  }else{
+    // Bonus: dichter und häufiger Mehrfachmuster.
+    if(r<.18)fns=[spawnTriplePattern,spawnSlalomPattern,spawnGatePattern];
+    else if(r<.40)fns=[spawnSlalomPattern,spawnTriplePattern,spawnOffsetPairPattern,spawnSingleObstacle];
+    else if(r<.62)fns=[spawnGatePattern,spawnTriplePattern,spawnSlalomPattern,spawnSingleObstacle];
+    else if(r<.82)fns=[spawnTriplePattern,spawnEdgePairPattern,spawnSlalomPattern,spawnGatePattern];
+    else fns=[spawnOffsetPairPattern,spawnTriplePattern,spawnSingleObstacle,spawnSlalomPattern];
   }
   for(const fn of fns)if(fn())return true;return false;
 }
@@ -601,6 +762,96 @@ function spawnMedipac(){
   }
   return false;
 }
+function spawnDuck(){
+  if(state.levelIndex!==1||state.duck||bonusDuckCollected)return false;
+  const cfg=levelCfg(),y=-74;
+  for(let attempt=0;attempt<48;attempt++){
+    const nearLeft=Math.random()<.5;
+    const edgeOffset=42+Math.random()*24;
+    const x=nearLeft?cfg.xMin+edgeOffset:cfg.xMax-edgeOffset;
+    const inward=nearLeft?1:-1;
+    const spec1=randomObstacleSpec(),spec2=randomObstacleSpec();
+    const x1=x+inward*(70+spec1.hit.w/2);
+    const y1=y+(Math.random()*2-1)*14;
+    const x2=x+inward*(34+spec2.hit.w/2);
+    const y2=y-(90+Math.random()*42);
+    if(x1<cfg.xMin+spec1.hit.w/2||x1>cfg.xMax-spec1.hit.w/2)continue;
+    if(x2<cfg.xMin+spec2.hit.w/2||x2>cfg.xMax-spec2.hit.w/2)continue;
+    const duckCandidate={x:x-DUCK_HIT_W/2,y:y-DUCK_HIT_H/2,w:DUCK_HIT_W,h:DUCK_HIT_H};
+    if(overlapsAny(duckCandidate,state.obstacles,obstacleRect,12))continue;
+    if(!canPlaceObstacle(spec1,x1,y1,12)||!canPlaceObstacle(spec2,x2,y2,12))continue;
+    pushObstacle(spec1,x1,y1,(Math.random()-.5)*.16);
+    pushObstacle(spec2,x2,y2,(Math.random()-.5)*.16);
+    state.duck={x,y,bob:Math.random()*Math.PI*2};
+    return true;
+  }
+  return false;
+}
+
+function spawnBonusLavaBurst(){
+  if(state.levelIndex!==3)return false;
+  const fromLeft=Math.random()<.5;
+  // Fontänen nur dort, wo im Hintergrund tatsächlich Lava zu sehen ist:
+  // links ca. x=120..220, rechts entsprechend x=W-220..W-120.
+  const sourceX=fromLeft
+    ? 120+Math.random()*100
+    : W-220+Math.random()*100;
+  const y=-96;
+  const vx=(fromLeft?1:-1)*(300+Math.random()*55);
+  state.lavaBursts.push({
+    type:'lavaBurst',
+    x:sourceX,
+    y,
+    sourceX,
+    vx,
+    fromLeft,
+    age:0,
+    phase:Math.random()*Math.PI*2,
+    rot:0,
+    w:BONUS_LAVA_W,
+    h:BONUS_LAVA_H,
+    hitW:BONUS_LAVA_HIT_W,
+    hitH:BONUS_LAVA_HIT_H,
+    fountainW:106,
+    fountainH:148,
+    fountainOffsetY:10
+  });
+  return true;
+}
+function randomBonusBombTarget(){
+  // Gleichmäßig verteilter Zufallspunkt im Kreis R=200 um (Bildmitte, y=300).
+  const a=Math.random()*Math.PI*2;
+  const r=Math.sqrt(Math.random())*BONUS_BOMB_TARGET_R;
+  return {x:BONUS_BOMB_TARGET_CX+Math.cos(a)*r,y:BONUS_BOMB_TARGET_CY+Math.sin(a)*r};
+}
+function spawnBonusAmbientExplosion(item){
+  if(state.levelIndex!==3)return false;
+  const side=item.side==='right'?'right':'left';
+  const x=side==='left'?(24+Math.random()*58):(W-24-Math.random()*58);
+  // Explosion nicht dort platzieren, wo Greif gerade steht.
+  let bestY=H/2,bestClear=-1;
+  for(let attempt=0;attempt<36;attempt++){
+    const y=72+Math.random()*(H-144);
+    let clear=Infinity;
+    for(const g of state.greifs)clear=Math.min(clear,Math.hypot(g.x-x,g.y-y));
+    if(state.greifs.length===0)clear=Infinity;
+    if(clear>bestClear){bestClear=clear;bestY=y;}
+    if(clear>=155){bestY=y;break;}
+  }
+  state.explosions.push({x,y:bestY,age:0,dur:.42,harmless:true,ambient:true});
+  sfx('bomb');
+  return true;
+}
+function spawnGreifThrow(){
+  if(state.levelIndex!==3)return false;
+  const fromLeft=Math.random()<.5;
+  // Weiter außen am Bildrand. Vertikal ist Greif Teil der scrollenden Welt und kommt von oben herein.
+  const x=fromLeft?42:W-42;
+  const y=-GREIF_DRAW_H*.42-Math.random()*18;
+  const taunt=state.greifTaunts.length?state.greifTaunts.shift():'';
+  state.greifs.push({x,y,fromLeft,age:0,bombReleased:false,done:false,taunt});
+  return true;
+}
 function isWildboarYBlocked(y){
   const creekBlocked=state.creeks.some(c=>Math.abs(y-c.y)<riverDrawH()*.55+22);
   const obstacleBlocked=state.obstacles.some(o=>Math.abs(y-(o.y+(o.floatY||0)))<Math.max(o.hitH||0,WILDBOAR_H)*.60+18);
@@ -616,7 +867,7 @@ function chooseWildboarY(baseY){
 function spawnWildboar(item){
   const fromLeft=!!item.fromLeft;
   const x=fromLeft?-WILDBOAR_W*.55:W+WILDBOAR_W*.55;
-  const speed=290+Math.random()*40;
+  const speed=(290+Math.random()*40)*1.10;
   const y=chooseWildboarY(item.y);
   state.wildboars.push({x,y,vx:(fromLeft?1:-1)*speed,fromLeft,phase:Math.random()*Math.PI*2});
   return true;
@@ -628,7 +879,7 @@ function spawnCrocodile(scheduleItem=null){
   const y=-CROCODILE_H*.62;
   const lower=!!(scheduleItem&&scheduleItem.lowerCrossing);
   const startSwimY=lower?(H*.62+Math.random()*H*.15):(112+Math.random()*155);
-  const vx=(fromLeft?1:-1)*(138+Math.random()*38);
+  const vx=(fromLeft?1:-1)*(138+Math.random()*38)*1.10;
   state.crocodiles.push({x,y,targetX,startSwimY,vx,fromLeft,movePhase:'waiting',phase:Math.random()*Math.PI*2,lower});
   return true;
 }
@@ -638,7 +889,7 @@ function spawnKite(){
   const y=H-38;
   const targetX=fromLeft?(W*(.74+Math.random()*.16)):(W*(.10+Math.random()*.16));
   const targetY=-110;
-  const flyTime=3.4+Math.random()*.7;
+  const flyTime=(3.4+Math.random()*.7)/1.10;
   const vx=(targetX-x)/flyTime,vy=(targetY-y)/flyTime;
   state.kites.push({x,y,vx,vy,wait:2.0,fromLeft,phase:Math.random()*Math.PI*2,rot:fromLeft?.22:-.22});
   return true;
@@ -654,7 +905,7 @@ function spawnCreek(){
 }
 
 function hitPlayer(){
-  if(state.invuln>0)return;
+  if(testNoCollisions||state.invuln>0)return;
   state.hits++;state.invuln=1;state.flash=.25;state.shake=.35;sfx('hit');
   if(state.hits>=MAX_HITS){state.mode='fail';sfx('fail');}
 }
@@ -666,8 +917,11 @@ function update(dt,now){
     state.exitSpeed=Math.min(980,state.exitSpeed+420*dt);
     const cfg=vehicleCfg();
     if(state.jeepY+cfg.drawH/2<-24){
-      if(state.exitFinal){
+      if(state.exitFinal==='main'){
         state.mode='win';
+        sfx('win');
+      }else if(state.exitFinal==='bonus'){
+        state.mode='bonusWin';
         sfx('win');
       }else{
         startInterLevelCountdown(state.levelIndex+1);
@@ -687,7 +941,8 @@ function update(dt,now){
   const cfg=levelCfg(),p=progress01(),speed=cfg.baseScroll*lerp(1,cfg.endSpeed,p);
   state.roadOffset=(state.roadOffset+speed*dt)%120;state.distanceTravelled+=speed*dt;
   if(state.distanceTravelled>=state.spawnDistance&&spawnObstaclePattern()){
-    const gapMin=lerp(cfg.gapStart[0],cfg.gapEnd[0],p),gapMax=lerp(cfg.gapStart[1],cfg.gapEnd[1],p);
+    const gapFactor=state.levelIndex===3?1.125:.90;
+    const gapMin=lerp(cfg.gapStart[0],cfg.gapEnd[0],p)*gapFactor,gapMax=lerp(cfg.gapStart[1],cfg.gapEnd[1],p)*gapFactor;
     state.spawnDistance+=gapMin+Math.random()*(gapMax-gapMin);
   }
   for(const f of state.fuelSchedule)if(!f.spawned&&state.elapsed>=f.spawnAt&&spawnFuel())f.spawned=true;
@@ -696,8 +951,16 @@ function update(dt,now){
     for(const c of state.creekSchedule)if(!c.spawned&&state.elapsed>=c.spawnAt&&spawnCreek())c.spawned=true;
     for(const b of state.wildboarSchedule)if(!b.spawned&&state.elapsed>=b.spawnAt&&spawnWildboar(b))b.spawned=true;
   }
-  if(state.levelIndex===1)for(const c of state.crocSchedule)if(!c.spawned&&state.elapsed>=c.spawnAt&&spawnCrocodile(c))c.spawned=true;
+  if(state.levelIndex===1){
+    for(const c of state.crocSchedule)if(!c.spawned&&state.elapsed>=c.spawnAt&&spawnCrocodile(c))c.spawned=true;
+    if(state.duckSchedule&&!state.duckSchedule.spawned&&state.elapsed>=state.duckSchedule.spawnAt&&state.elapsed<=LEVEL_SECONDS*.90&&spawnDuck())state.duckSchedule.spawned=true;
+  }
   if(state.levelIndex===2)for(const k of state.kiteSchedule)if(!k.spawned&&state.elapsed>=k.spawnAt&&spawnKite())k.spawned=true;
+  if(state.levelIndex===3){
+    for(const l of state.bonusLavaSchedule)if(!l.spawned&&state.elapsed>=l.spawnAt&&spawnBonusLavaBurst())l.spawned=true;
+    for(const g of state.greifBombSchedule)if(!g.spawned&&state.elapsed>=g.spawnAt&&spawnGreifThrow())g.spawned=true;
+    for(const ex of state.bonusAmbientExplosionSchedule)if(!ex.spawned&&state.elapsed>=ex.spawnAt&&spawnBonusAmbientExplosion(ex))ex.spawned=true;
+  }
   if(state.levelIndex===0&&!state.stegoSpawned&&state.elapsed>=18){
     state.stego={x:92,y:-150,w:220,h:162,passed:false};
     state.stegoSpawned=true;
@@ -736,6 +999,7 @@ function update(dt,now){
   }
   for(const f of state.fuelItems){f.y+=speed*dt;f.spin+=dt*1.7;}
   for(const m of state.medipacItems){m.y+=speed*dt;m.bob+=dt*1.9;}
+  if(state.duck){state.duck.y+=speed*dt;state.duck.bob+=dt*2.4;if(state.duck.y>H+90)state.duck=null;}
   for(const c of state.creeks)c.y+=speed*dt;
   for(const pch of state.dustPatches)pch.y+=speed*dt;
   for(const b of state.wildboars){b.x+=b.vx*dt;}
@@ -761,6 +1025,48 @@ function update(dt,now){
       k.rot=Math.atan2(k.vx,-k.vy)*.42;
     }
   }
+  for(const l of state.lavaBursts){
+    l.age=(l.age||0)+dt;
+    l.y+=speed*dt;
+    l.x+=l.vx*dt;
+    l.rot=(l.fromLeft?.10:-.10)+Math.sin(state.elapsed*6+l.phase)*.03;
+  }
+  for(const g of state.greifs){
+    g.age+=dt;
+    g.y+=speed*dt;
+    // 3-Frame-Wurfanimation: 1 = Ausholen, 2 = Arm oben, 3 = Bombe losgelassen.
+    if(!g.bombReleased&&g.age>=.82){
+      g.bombReleased=true;
+      if(g.taunt){state.greifMessage=g.taunt;state.greifMessageUntil=now+2800;}
+      const target=randomBonusBombTarget();
+      const throwX=g.x+(g.fromLeft?42:-42),throwY=g.y-58;
+      const travel=.92+Math.random()*.22;
+      state.bombs.push({
+        startX:throwX,startY:throwY,x:throwX,y:throwY,
+        targetX:target.x,targetY:target.y,
+        age:0,travel,
+        spin:(Math.random()<.5?-1:1)*(4.0+Math.random()*1.5),rot:0,
+        exploded:false,sourceLeft:g.fromLeft
+      });
+    }
+    if(g.age>=1.72)g.done=true;
+  }
+  for(const b of state.bombs){
+    b.age+=dt;
+    const t=Math.min(1,b.age/b.travel);
+    b.x=lerp(b.startX,b.targetX,t);
+    b.y=lerp(b.startY,b.targetY,t)-Math.sin(t*Math.PI)*72;
+    b.rot+=b.spin*dt;
+    if(t>=1&&!b.exploded){
+      b.exploded=true;
+      b.x=b.targetX;b.y=b.targetY;
+      state.explosions.push({x:b.targetX,y:b.targetY,age:0,dur:.42,harmless:false});
+      sfx('bomb');
+      const dx=state.jeepX-b.targetX,dy=state.jeepY-b.targetY;
+      if(Math.hypot(dx,dy)<=BONUS_BOMB_BLAST_R)hitPlayer();
+    }
+  }
+  for(const ex of state.explosions)ex.age+=dt;
   if(state.stego){
     state.stego.y+=speed*dt;
     if(!state.stego.passed && state.stego.y>state.jeepY-10){
@@ -777,16 +1083,36 @@ function update(dt,now){
     }
     if(state.triceratops.y>H+160)state.triceratops=null;
   }
-  state.obstacles=state.obstacles.filter(o=>o.y<H+120);state.fuelItems=state.fuelItems.filter(f=>f.y<H+100);state.medipacItems=state.medipacItems.filter(m=>m.y<H+100);state.creeks=state.creeks.filter(c=>c.y<H+100);state.dustPatches=state.dustPatches.filter(p=>p.y<H+120);state.crocodiles=state.crocodiles.filter(c=>c.y>-CROCODILE_H*1.5&&c.y<H+CROCODILE_H*1.5);state.kites=state.kites.filter(k=>k.x>-KITE_W&&k.x<W+KITE_W&&k.y>-KITE_H&&k.y<H+KITE_H+80);state.wildboars=state.wildboars.filter(b=>b.x>-WILDBOAR_W&&b.x<W+WILDBOAR_W&&b.y>-WILDBOAR_H&&b.y<H+WILDBOAR_H);
+  state.obstacles=state.obstacles.filter(o=>o.y<H+120);
+  state.fuelItems=state.fuelItems.filter(f=>f.y<H+100);
+  state.medipacItems=state.medipacItems.filter(m=>m.y<H+100);
+  state.creeks=state.creeks.filter(c=>c.y<H+100);
+  state.dustPatches=state.dustPatches.filter(p=>p.y<H+120);
+  state.crocodiles=state.crocodiles.filter(c=>c.y>-CROCODILE_H*1.5&&c.y<H+CROCODILE_H*1.5);
+  state.kites=state.kites.filter(k=>k.x>-KITE_W&&k.x<W+KITE_W&&k.y>-KITE_H&&k.y<H+KITE_H+80);
+  state.wildboars=state.wildboars.filter(b=>b.x>-WILDBOAR_W&&b.x<W+WILDBOAR_W&&b.y>-WILDBOAR_H&&b.y<H+WILDBOAR_H);
+  state.lavaBursts=state.lavaBursts.filter(l=>l.y>-120&&l.y<H+120&&l.x>-180&&l.x<W+180);
+  state.greifs=state.greifs.filter(g=>!g.done);
+  state.bombs=state.bombs.filter(b=>!b.exploded);
+  state.explosions=state.explosions.filter(ex=>ex.age<ex.dur);
   if(state.invuln>0)state.invuln=Math.max(0,state.invuln-dt);if(state.flash>0)state.flash=Math.max(0,state.flash-dt);if(state.shake>0)state.shake=Math.max(0,state.shake-dt);if(state.nearMissCooldown>0)state.nearMissCooldown=Math.max(0,state.nearMissCooldown-dt);
 
   const player={x:state.jeepX-v.hitW*.5,y:state.jeepY-v.hitH*.5,w:v.hitW,h:v.hitH};
-  for(const f of state.fuelItems){if(rectHit(player,fuelRect(f))){state.fuel=Math.min(FUEL_MAX,state.fuel+FUEL_PER_ITEM);state.fuelCollected++;f.y=H+200;sfx('fuel');}}
-  for(const m of state.medipacItems){
-    if(rectHit(player,medipacRect(m))){
-      if(state.hits>0)state.hits--;
-      m.y=H+200;
-      sfx('medipac');
+  if(!state.jumping){
+    for(const f of state.fuelItems){if(rectHit(player,fuelRect(f))){state.fuel=Math.min(FUEL_MAX,state.fuel+FUEL_PER_ITEM);state.fuelCollected++;f.y=H+200;sfx('fuel');}}
+    for(const m of state.medipacItems){
+      if(rectHit(player,medipacRect(m))){
+        if(state.hits>0)state.hits--;
+        m.y=H+200;
+        sfx('medipac');
+        updateHud();
+      }
+    }
+    if(state.levelIndex===1&&state.duck&&rectHit(player,duckRect(state.duck))){
+      bonusDuckCollected=true;
+      state.duck=null;
+      state.duckMessageUntil=0;
+      sfx('bonus');
       updateHud();
     }
   }
@@ -800,12 +1126,13 @@ function update(dt,now){
   }
   if(state.invuln<=0&&!state.jumping){
     for(const o of state.obstacles){if(rectHit(player,obstacleRect(o))){o.y=H+200;hitPlayer();break;}}
+    if(state.invuln<=0){for(const l of state.lavaBursts){if(rectHit(player,lavaBurstRect(l))){l.y=H+200;hitPlayer();break;}}}
     if(state.invuln<=0){for(const b of state.wildboars){if(rectHit(player,wildboarRect(b))){b.x=b.fromLeft?W+999:-999;hitPlayer();break;}}}
     if(state.invuln<=0){for(const c of state.crocodiles){if(!c.hit&&rectHit(player,crocodileRect(c))){c.hit=true;hitPlayer();break;}}}
     if(state.invuln<=0){for(const k of state.kites){if(rectHit(player,kiteRect(k))){k.y=-999;hitPlayer();break;}}}
   }
   if(state.mode==='play'&&state.invuln<=0&&state.nearMissCooldown<=0&&!state.jumping){
-    let near=Math.min(nearestDistance(player,state.obstacles,obstacleRect),nearestDistance(player,state.wildboars,wildboarRect),nearestDistance(player,state.crocodiles,crocodileRect),nearestDistance(player,state.kites,kiteRect));
+    let near=Math.min(nearestDistance(player,state.obstacles,obstacleRect),nearestDistance(player,state.lavaBursts,lavaBurstRect),nearestDistance(player,state.wildboars,wildboarRect),nearestDistance(player,state.crocodiles,crocodileRect),nearestDistance(player,state.kites,kiteRect));
     if(state.levelIndex===0&&!state.jumping){
       for(const c of state.creeks){
         const [left,right]=creekWaterHitRects(c);
@@ -876,7 +1203,31 @@ function drawSky(){
     ctx.beginPath();ctx.ellipse(x,y,46,18,0,0,Math.PI*2);ctx.fill();
   }
 }
-function drawGround(){if(state.levelIndex===0)drawLand();else if(state.levelIndex===1)drawWater();else drawSky();}
+function drawBonusGround(){
+  const bg=SPRITES.bgBonus04;
+  if(spriteReady(bg)){
+    const scale=W/bg.naturalWidth;
+    const drawW=W;
+    const drawH=bg.naturalHeight*scale;
+    const scroll=((state.distanceTravelled%drawH)+drawH)%drawH;
+    for(let y=scroll-drawH;y<H+drawH;y+=drawH){
+      ctx.drawImage(bg,0,y,drawW,drawH);
+    }
+  }else{
+    const grad=ctx.createLinearGradient(0,0,0,H);
+    grad.addColorStop(0,'#22100d');grad.addColorStop(.55,'#120c0c');grad.addColorStop(1,'#090708');
+    ctx.fillStyle=grad;ctx.fillRect(0,0,W,H);
+  }
+  // No additional optical overlay effects in the bonus background.
+  // The background image spans the full width on its own.
+  // The 500 px drivable lane is gameplay-only and remains invisible.
+}
+function drawGround(){
+  if(state.levelIndex===0)drawLand();
+  else if(state.levelIndex===1)drawWater();
+  else if(state.levelIndex===2)drawSky();
+  else drawBonusGround();
+}
 
 function drawDustPatches(now){
   if(state.levelIndex!==0)return;
@@ -973,6 +1324,78 @@ function drawObstacle(o){
   ctx.save();ctx.translate(o.x,o.y+(o.floatY||0));ctx.rotate(o.rot);
   if(o.type==='cloud')drawCloud(o);
   else if(o.type==='bird')drawBird(o);
+  else if(o.type==='lavaBurst'){
+    const age=o.age||0;
+    const burstFrame=Math.floor(age*14)%3;
+    const burstImg=SPRITES.lavaBurst&&SPRITES.lavaBurst[burstFrame];
+    const fountainFrame=Math.floor(age*12)%4;
+    const fountainImg=SPRITES.lava&&SPRITES.lava[fountainFrame];
+
+    // 1) Feste Lavafontäne am Fahrbahnrand (deutlich sichtbar).
+    const relX=(o.sourceX??o.x)-o.x;
+    const fw=o.fountainW||106, fh=o.fountainH||148;
+    ctx.save();
+    ctx.rotate(-o.rot);
+    if(spriteReady(fountainImg)){
+      ctx.drawImage(fountainImg,relX-fw/2,-fh+(o.fountainOffsetY||10),fw,fh);
+    }else{
+      const g=ctx.createLinearGradient(relX, -fh, relX, 10);
+      g.addColorStop(0,'#fff1a8');
+      g.addColorStop(.25,'#ffd14b');
+      g.addColorStop(.62,'#ff7b28');
+      g.addColorStop(1,'#c82612');
+      ctx.fillStyle=g;
+      ctx.beginPath();
+      ctx.moveTo(relX-18,6);
+      ctx.quadraticCurveTo(relX-8,-42,relX-2,-72);
+      ctx.quadraticCurveTo(relX+4,-124,relX+16,-32);
+      ctx.quadraticCurveTo(relX+22,-6,relX+26,10);
+      ctx.quadraticCurveTo(relX+6,0,relX-18,6);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // 2) Heller Lavaschwall quer über die Fahrbahn.
+    ctx.save();
+    ctx.rotate(o.rot||0);
+    if(!o.fromLeft)ctx.scale(-1,1);
+    ctx.globalAlpha=.98;
+    if(spriteReady(burstImg)){
+      ctx.drawImage(burstImg,-o.w/2,-o.h/2,o.w,o.h);
+    }else{
+      const grad=ctx.createLinearGradient(-o.w*.40,0,o.w*.46,0);
+      grad.addColorStop(0,'rgba(255,255,180,.92)');
+      grad.addColorStop(.20,'#ffd24c');
+      grad.addColorStop(.55,'#ff7b28');
+      grad.addColorStop(1,'rgba(255,95,24,.10)');
+      ctx.fillStyle=grad;
+      ctx.beginPath();
+      ctx.moveTo(-o.w*.34, o.h*.10);
+      ctx.quadraticCurveTo(-o.w*.14,-o.h*.66, o.w*.02,-o.h*.24);
+      ctx.quadraticCurveTo(o.w*.20,o.h*.02, o.w*.42,-o.h*.04);
+      ctx.quadraticCurveTo(o.w*.26,o.h*.22,-o.w*.16,o.h*.24);
+      ctx.quadraticCurveTo(-o.w*.24,o.h*.20,-o.w*.34,o.h*.10);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  else if(o.type==='lavaVent'){
+    ctx.save();
+    ctx.shadowColor='#ff4b18';ctx.shadowBlur=18;
+    ctx.fillStyle='#48150c';ctx.beginPath();ctx.ellipse(0,8,o.w*.34,o.h*.26,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#ff5a1e';ctx.beginPath();ctx.moveTo(-18,10);ctx.quadraticCurveTo(-4,-36,4,-4);ctx.quadraticCurveTo(13,-42,23,10);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#ffd34f';ctx.beginPath();ctx.moveTo(-7,7);ctx.quadraticCurveTo(1,-22,8,6);ctx.closePath();ctx.fill();
+    ctx.restore();
+  }
+  else if(o.type==='lavaRock'){
+    const img=SPRITES.rocks[o.variant];
+    ctx.save();
+    if(spriteReady(img))ctx.drawImage(img,-o.w/2,-o.h/2,o.w,o.h);
+    else{ctx.fillStyle='#4b302a';ctx.beginPath();ctx.arc(0,0,o.w*.34,0,Math.PI*2);ctx.fill();}
+    ctx.restore();
+  }
   else if(o.type==='buoy'){
     const img=SPRITES.buoys[o.variant];
     if(spriteReady(img))ctx.drawImage(img,-o.w/2,-o.h/2,o.w,o.h);
@@ -1003,6 +1426,87 @@ function drawMedipac(m){
     ctx.fillStyle='#f3f3ed';ctx.fillRect(-5,-11,10,22);ctx.fillRect(-11,-5,22,10);
     ctx.fillStyle='#7d2020';roundedRect(-10,-23,20,8,4);ctx.fill();
   }
+  ctx.restore();
+}
+function drawDuck(d){
+  if(!d)return;
+  ctx.save();
+  ctx.translate(d.x,d.y+Math.sin(d.bob)*3);
+  ctx.fillStyle='rgba(0,0,0,.18)';ctx.beginPath();ctx.ellipse(0,18,22,6,0,0,Math.PI*2);ctx.fill();
+  if(spriteReady(SPRITES.duck))ctx.drawImage(SPRITES.duck,-DUCK_W/2,-DUCK_H/2,DUCK_W,DUCK_H);
+  else{
+    ctx.fillStyle='#ffd83d';ctx.strokeStyle='#c48d16';ctx.lineWidth=2;
+    ctx.beginPath();ctx.ellipse(-3,4,23,16,-.08,0,Math.PI*2);ctx.fill();ctx.stroke();
+    ctx.beginPath();ctx.arc(11,-13,13,0,Math.PI*2);ctx.fill();ctx.stroke();
+    ctx.fillStyle='#f28a24';ctx.beginPath();ctx.moveTo(21,-14);ctx.lineTo(35,-10);ctx.lineTo(21,-6);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#202020';ctx.beginPath();ctx.arc(15,-17,2.3,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#f6c832';ctx.beginPath();ctx.moveTo(-23,0);ctx.quadraticCurveTo(-34,-8,-28,-15);ctx.quadraticCurveTo(-13,-8,-9,-1);ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawGreif(g){
+  ctx.save();
+  ctx.translate(g.x,g.y);
+  // Linker Rand: Originalausrichtung blickt in die Fahrbahn. Rechter Rand: horizontal spiegeln.
+  if(!g.fromLeft)ctx.scale(-1,1);
+  let frameIndex=0;
+  if(g.age>=.42)frameIndex=1;
+  if(g.age>=.82)frameIndex=2;
+  const img=SPRITES.greifBomb[frameIndex];
+  if(spriteReady(img)){
+    const ratio=img.naturalWidth/img.naturalHeight;
+    const h=GREIF_DRAW_H,w=h*ratio;
+    ctx.drawImage(img,-w/2,-h/2,w,h);
+  }else{
+    ctx.fillStyle='#f0e7d4';ctx.beginPath();ctx.arc(0,-18,26,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#7c5a2c';ctx.fillRect(-22,-44,44,12);
+    ctx.fillStyle='#c53d30';ctx.fillRect(-18,16,36,18);
+  }
+  ctx.restore();
+}
+function drawBomb(b){
+  ctx.save();ctx.translate(b.x,b.y);ctx.rotate(b.rot);
+  if(spriteReady(SPRITES.bomb)){
+    ctx.drawImage(SPRITES.bomb,-BONUS_BOMB_W/2,-BONUS_BOMB_H/2,BONUS_BOMB_W,BONUS_BOMB_H);
+  }else{
+    ctx.fillStyle='#1f2024';ctx.beginPath();ctx.arc(0,0,12,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#6e5527';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(0,-8);ctx.quadraticCurveTo(8,-18,12,-22);ctx.stroke();
+    ctx.fillStyle='#ffb32f';ctx.beginPath();ctx.arc(13,-24,4,0,Math.PI*2);ctx.fill();
+  }
+  ctx.restore();
+}
+function drawExplosion(ex){
+  const t=Math.min(1,ex.age/ex.dur);
+  const idx=Math.min(3,Math.floor(t*4));
+  const img=SPRITES.explosions&&SPRITES.explosions[idx];
+  ctx.save();
+  ctx.translate(ex.x,ex.y);
+  ctx.globalAlpha=1-t*.12;
+  if(spriteReady(img)){
+    const size=ex.harmless?120:170;
+    ctx.drawImage(img,-size/2,-size/2,size,size);
+  }else{
+    const r=18+BONUS_BOMB_BLAST_R*(.30+.70*t);
+    ctx.fillStyle='rgba(255,96,24,.38)';ctx.beginPath();ctx.arc(0,0,r,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='rgba(255,210,70,.62)';ctx.beginPath();ctx.arc(0,0,r*.52,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='rgba(255,245,190,.92)';ctx.lineWidth=4;ctx.beginPath();ctx.arc(0,0,r*.74,0,Math.PI*2);ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawBonusBadge(){
+  if(!bonusDuckCollected)return;
+  const r=BONUS_BADGE;
+  ctx.save();
+  ctx.fillStyle='rgba(0,0,0,.58)';
+  ctx.strokeStyle='rgba(255,211,92,.92)';
+  ctx.lineWidth=2;
+  roundedRect(r.x,r.y,r.w,r.h,14);ctx.fill();ctx.stroke();
+  if(spriteReady(SPRITES.duck))ctx.drawImage(SPRITES.duck,r.x+39,r.y+8,58,50);
+  else{ctx.font='38px system-ui';ctx.textAlign='center';ctx.fillStyle='#f3d35c';ctx.fillText('🦆',r.x+r.w/2,r.y+48);}
+  ctx.textAlign='center';
+  ctx.fillStyle='#f3d35c';ctx.font='bold 20px system-ui';ctx.fillText('Bonus-Level',r.x+r.w/2,r.y+80);
+  ctx.textAlign='left';
   ctx.restore();
 }
 function drawWildboar(b){
@@ -1183,6 +1687,24 @@ function drawStegoMessage(now){
   ctx.fillText('🦕 Gib Gummi, Spiono, Bleifuß und Vollgas!',W/2,59);
   ctx.textAlign='left';
 }
+function drawGreifMessage(now){
+  if(state.levelIndex!==3||state.mode!=='play'||!state.greifMessage||now>=state.greifMessageUntil)return;
+  const boxW=790,boxH=36;
+  ctx.fillStyle='rgba(0,0,0,.62)';
+  ctx.fillRect(W/2-boxW/2,35,boxW,boxH);
+  ctx.fillStyle='#ffe59a';
+  ctx.font='bold 16px system-ui';
+  ctx.textAlign='center';
+  ctx.fillText(state.greifMessage,W/2,59);
+  ctx.textAlign='left';
+}
+function drawDuckMessage(now){
+  if(state.levelIndex!==1||now>=state.duckMessageUntil)return;
+  const boxW=420,boxH=36;
+  ctx.fillStyle='rgba(0,0,0,.62)';ctx.fillRect(W/2-boxW/2,35,boxW,boxH);
+  ctx.fillStyle='#ffe59a';ctx.font='bold 16px system-ui';ctx.textAlign='center';
+  ctx.fillText('🦆 BONUS-ITEM EINGESAMMELT!',W/2,59);ctx.textAlign='left';
+}
 function drawTriceratops(){
   if(!state.triceratops||state.levelIndex!==1)return;
   const s=state.triceratops;
@@ -1202,6 +1724,35 @@ function drawTriceratopsMessage(now){
   ctx.fillText('🦏 Bist du etwa wasserscheu, Spiono? Reiß den Hahn auf!',W/2,59);
   ctx.textAlign='left';
 }
+function drawRocketMinecart(now,cfg){
+  const img=SPRITES.minecart;
+  if(spriteReady(img)){
+    const ratio=img.naturalWidth/img.naturalHeight;
+    const h=cfg.drawH,w=h*ratio;
+    ctx.drawImage(img,-w/2,-h/2,w,h);
+    return;
+  }
+  const t=now*.001;
+  ctx.save();
+  const flame=14+Math.sin(t*28)*5;
+  ctx.fillStyle='rgba(255,70,24,.92)';
+  ctx.beginPath();ctx.moveTo(-13,cfg.drawH*.37);ctx.lineTo(0,cfg.drawH*.37+flame+18);ctx.lineTo(13,cfg.drawH*.37);ctx.closePath();ctx.fill();
+  ctx.fillStyle='#ffd34f';ctx.beginPath();ctx.moveTo(-6,cfg.drawH*.37);ctx.lineTo(0,cfg.drawH*.37+flame+8);ctx.lineTo(6,cfg.drawH*.37);ctx.closePath();ctx.fill();
+  ctx.fillStyle='#5f6668';ctx.strokeStyle='#23282a';ctx.lineWidth=4;
+  roundedRect(-cfg.drawW*.42,-cfg.drawH*.32,cfg.drawW*.84,cfg.drawH*.64,12);ctx.fill();ctx.stroke();
+  ctx.fillStyle='#7c3f24';roundedRect(-cfg.drawW*.35,-cfg.drawH*.24,cfg.drawW*.70,cfg.drawH*.46,9);ctx.fill();
+  ctx.fillStyle='#293033';
+  for(const x of [-cfg.drawW*.34,cfg.drawW*.34]){ctx.beginPath();ctx.arc(x,cfg.drawH*.26,12,0,Math.PI*2);ctx.fill();}
+  ctx.fillStyle='#8d9496';ctx.fillRect(-30,cfg.drawH*.28,22,20);ctx.fillRect(8,cfg.drawH*.28,22,20);
+  ctx.fillStyle='#d24a32';ctx.fillRect(-27,cfg.drawH*.31,16,12);ctx.fillRect(11,cfg.drawH*.31,16,12);
+  if(spriteReady(SPRITES.duck)){
+    const bob=Math.sin(t*9)*2;
+    ctx.drawImage(SPRITES.duck,-33,-28+bob,30,26);
+    ctx.drawImage(SPRITES.duck,-4,-35-bob,30,26);
+    ctx.drawImage(SPRITES.duck,20,-23+bob*.6,28,24);
+  }
+  ctx.restore();
+}
 function drawVehicle(now){
   const blink=state.invuln>0&&Math.floor(now/90)%2===0;if(blink)return;
   const cfg=vehicleCfg(),key=levelCfg().vehicle,img=SPRITES[key];
@@ -1214,7 +1765,8 @@ function drawVehicle(now){
   if(key==='jeep')drawJeepDirt(now,cfg,arc,terrainX,terrainY,terrainRot,lift);
   else if(key==='jetski')drawJetskiSplash(now,cfg,arc,terrainX,terrainY,terrainRot,lift);
   ctx.save();ctx.translate(state.jeepX+terrainX,state.jeepY-lift+terrainY);ctx.rotate(state.jeepTilt+terrainRot);const scale=1+.045*arc;ctx.scale(scale,scale);
-  if(spriteReady(img))ctx.drawImage(img,-cfg.drawW/2,-cfg.drawH/2,cfg.drawW,cfg.drawH);
+  if(key==='minecart')drawRocketMinecart(now,cfg);
+  else if(spriteReady(img))ctx.drawImage(img,-cfg.drawW/2,-cfg.drawH/2,cfg.drawW,cfg.drawH);
   else{ctx.fillStyle=key==='jet'?'#d43b31':key==='jetski'?'#f2d238':'#6b7440';roundedRect(-cfg.drawW*.32,-cfg.drawH*.42,cfg.drawW*.64,cfg.drawH*.84,12);ctx.fill();}
   ctx.restore();
   if(key==='jet')drawJetEffects(now,cfg,arc,terrainX,terrainY,terrainRot,lift);
@@ -1231,6 +1783,25 @@ function drawVehicle(now){
 }
 function tryJump(){if(state.mode!=='play'||state.jumping||state.fuel<JUMP_FUEL_COST)return;state.fuel=Math.max(0,state.fuel-JUMP_FUEL_COST);state.jumping=true;state.jumpElapsed=0;sfx('jump');updateHud();}
 
+function drawCenteredWrappedText(textValue,x,y,maxWidth,lineHeight){
+  const words=textValue.split(/\s+/);let line='',lines=[];
+  for(const word of words){
+    const test=line?line+' '+word:word;
+    if(line&&ctx.measureText(test).width>maxWidth){lines.push(line);line=word;}else line=test;
+  }
+  if(line)lines.push(line);
+  for(let i=0;i<lines.length;i++)ctx.fillText(lines[i],x,y+i*lineHeight);
+  return lines.length;
+}
+function startBonusLevel(){
+  if(!bonusDuckCollected)return;
+  initLevel(3,'countdown');
+  ensureAudio();
+  state.countdown=3;
+  state.countdownUntil=performance.now()+650;
+  sfx('count');
+}
+
 function drawOverlay(){
   if(state.mode==='start'){
     ctx.fillStyle='rgba(0,0,0,.58)';ctx.fillRect(W/2-190,H-94,380,52);ctx.textAlign='center';ctx.font='bold 24px system-ui';ctx.fillStyle='#f3d35c';ctx.fillText('Leertaste zum Start',W/2,H-60);ctx.textAlign='left';
@@ -1239,17 +1810,43 @@ function drawOverlay(){
   }else if(state.mode==='paused'){
     ctx.fillStyle='rgba(5,10,8,.48)';ctx.fillRect(0,0,W,H);ctx.textAlign='center';ctx.font='bold 38px system-ui';ctx.fillStyle='#f3d35c';ctx.fillText('PAUSE',W/2,H/2);ctx.textAlign='left';
   }else if(state.mode==='win'){
-    // Winscreen wie bei „Flucht“: leichte Vollbild-Abdunklung und mittige Textbox.
-    ctx.fillStyle='rgba(0,0,0,.28)';ctx.fillRect(0,0,W,H);
-    ctx.fillStyle='rgba(0,0,0,.58)';ctx.fillRect(W/2-330,220,660,175);
+    // Exakt dieselbe Anordnung/Typografie wie bei Wanze/Flucht.
+    const boxH=150,boxY=H-boxH-28;
+    ctx.fillStyle='rgba(0,0,0,.58)';
+    ctx.fillRect(W/2-330,boxY,660,boxH);
     ctx.textAlign='center';
-    ctx.fillStyle='#fff';ctx.font='bold 42px system-ui';
-    ctx.fillText('* * * JAAA, JUHUUUU * * *',W/2,270);
-    ctx.font='22px system-ui';ctx.fillStyle='#f3d35c';
-    ctx.fillText('Spiono kann seine Freunde rechtzeitig vor Prof. Dr. Tyrannus Greif warnen.',W/2,315);
+    ctx.fillStyle='#fff';ctx.font='bold 34px system-ui';
+    ctx.fillText('* * * JAAA, JUHUUUU * * *',W/2,boxY+38);
+    ctx.font='20px system-ui';ctx.fillStyle='#f3d35c';
+    ctx.fillText('Spiono kann seine Freunde rechtzeitig warnen.',W/2,boxY+74);
+    ctx.font='bold 22px system-ui';
+    ctx.fillText('TEST-INFORMATION',W/2,boxY+112);
+    ctx.textAlign='left';
+    drawBonusBadge();
+  }else if(state.mode==='bonusIntro'){
+    ctx.fillStyle='rgba(0,0,0,.52)';ctx.fillRect(0,0,W,H);
+    const boxW=760,boxH=232,boxX=(W-boxW)/2,boxY=H-boxH-42;
+    ctx.fillStyle='rgba(0,0,0,.72)';ctx.fillRect(boxX,boxY,boxW,boxH);
+    ctx.textAlign='center';
+    ctx.fillStyle='#fff';ctx.font='bold 30px system-ui';
+    ctx.fillText('BONUS-LEVEL (GC12345)',W/2,boxY+42);
+    ctx.font='19px system-ui';ctx.fillStyle='#f3d35c';
+    drawCenteredWrappedText('Spiono hat ein Quitscheentchen von Prof. Dr. Tyrannus Greif gefunden. Es führt ihn tief in dessen Lava-Katakomben. Hilf Spiono nun mit seiner raketengetriebenen Minenlore nun dabei, alle Quitscheentchen zu befreien. Sie werden dir gewiss sehr dankbar sein.',W/2,boxY+82,680,27);
+    ctx.font='bold 22px system-ui';ctx.fillStyle='#fff';
+    ctx.fillText('Leertaste zum Start',W/2,boxY+202);
+    ctx.textAlign='left';
+  }else if(state.mode==='bonusWin'){
+    const boxH=166,boxY=H-boxH-28,boxW=800;
+    ctx.fillStyle='rgba(0,0,0,.58)';ctx.fillRect(W/2-boxW/2,boxY,boxW,boxH);
+    ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 30px system-ui';
+    ctx.fillText('* * * QUITSCHEENTCHEN GERETTET * * *',W/2,boxY+40);
+    ctx.font='19px system-ui';ctx.fillStyle='#f3d35c';
+    ctx.fillText('Hurra, Spiono konnte alle Quitscheentchen aus der Gefangenschaft befreien.',W/2,boxY+82);
+    ctx.font='bold 18px system-ui';ctx.fillStyle='#fff';
+    ctx.fillText('Zum Dank schnattern sie dir das Passwort für GC12345 zu: TEST',W/2,boxY+122);
     ctx.textAlign='left';
   }else if(['fuelFail','fail'].includes(state.mode)){
-    const boxH=138,boxY=H-boxH-28;ctx.fillStyle='rgba(0,0,0,.58)';ctx.fillRect(W/2-330,boxY,660,boxH);ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 34px system-ui';ctx.fillText(state.mode==='fuelFail'?'TANK LEER!':'GECRASHED!',W/2,boxY+38);ctx.font='20px system-ui';ctx.fillStyle='#ffaaaa';ctx.fillText(state.mode==='fuelFail'?(state.levelIndex===1?'Spiono säuft ohne Fuel ab.':state.levelIndex===2?'Spiono stürzt ohne Fuel ab.':'Spiono bleibt ohne Fuel liegen.'):'Spiono ist auf der Strecke geblieben.',W/2,boxY+74);ctx.font='16px system-ui';ctx.fillStyle='#ddd';ctx.fillText('Leertaste für einen neuen Versuch',W/2,boxY+108);ctx.textAlign='left';
+    const boxH=138,boxY=H-boxH-28;ctx.fillStyle='rgba(0,0,0,.58)';ctx.fillRect(W/2-330,boxY,660,boxH);ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 34px system-ui';ctx.fillText(state.mode==='fuelFail'?'TANK LEER!':'GECRASHED!',W/2,boxY+38);ctx.font='20px system-ui';ctx.fillStyle='#ffaaaa';ctx.fillText(state.mode==='fuelFail'?(state.levelIndex===1?'Spiono säuft ohne Fuel ab.':state.levelIndex===2?'Spiono stürzt ohne Fuel ab.':state.levelIndex===3?'Spionos Lore bleibt ohne Fuel liegen.':'Spiono bleibt ohne Fuel liegen.'):'Spiono ist auf der Strecke geblieben.',W/2,boxY+74);ctx.font='16px system-ui';ctx.fillStyle='#ddd';ctx.fillText('Leertaste für einen neuen Versuch',W/2,boxY+108);ctx.textAlign='left';
   }
 }
 function draw(now){
@@ -1259,26 +1856,59 @@ function draw(now){
   if(state.mode==='win'&&spriteReady(SPRITES.winScreen)){
     ctx.clearRect(0,0,W,H);ctx.drawImage(SPRITES.winScreen,0,0,W,H);drawOverlay();return;
   }
+  if(state.mode==='bonusWin'&&spriteReady(SPRITES.bonusWinScreen)){
+    ctx.clearRect(0,0,W,H);ctx.drawImage(SPRITES.bonusWinScreen,0,0,W,H);drawOverlay();return;
+  }
+  if(state.mode==='bonusIntro'){
+    ctx.clearRect(0,0,W,H);drawBonusGround();drawOverlay();return;
+  }
   if(state.mode==='fail'||state.mode==='fuelFail'){
     const failImg=SPRITES.failScreens[state.levelIndex];
     if(spriteReady(failImg)){ctx.clearRect(0,0,W,H);ctx.drawImage(failImg,0,0,W,H);drawOverlay();return;}
   }
-  ctx.save();if(state.shake>0){const m=6*(state.shake/.35);ctx.translate((Math.random()-.5)*m,(Math.random()-.5)*m);}drawGround();drawDustPatches(now);drawWindGustFx(now);drawStego();drawTriceratops();for(const c of state.creeks)drawCreek(c);for(const o of state.obstacles)drawObstacle(o);for(const b of state.wildboars)drawWildboar(b);for(const c of state.crocodiles)drawCrocodile(c);for(const k of state.kites)drawKite(k);for(const f of state.fuelItems)drawFuel(f);for(const m of state.medipacItems)drawMedipac(m);drawVehicle(now);ctx.restore();if(state.flash>0){ctx.fillStyle=`rgba(255,70,70,${Math.min(.28,state.flash)})`;ctx.fillRect(0,0,W,H);}drawNearMissFx(now);drawStegoMessage(now);drawTriceratopsMessage(now);drawOverlay();
+  ctx.save();if(state.shake>0){const m=6*(state.shake/.35);ctx.translate((Math.random()-.5)*m,(Math.random()-.5)*m);}drawGround();drawDustPatches(now);drawWindGustFx(now);drawStego();drawTriceratops();for(const c of state.creeks)drawCreek(c);for(const o of state.obstacles)drawObstacle(o);for(const l of state.lavaBursts)drawObstacle(l);for(const g of state.greifs)drawGreif(g);for(const b of state.bombs)drawBomb(b);for(const ex of state.explosions)drawExplosion(ex);for(const b of state.wildboars)drawWildboar(b);for(const c of state.crocodiles)drawCrocodile(c);for(const k of state.kites)drawKite(k);for(const f of state.fuelItems)drawFuel(f);for(const m of state.medipacItems)drawMedipac(m);drawDuck(state.duck);drawVehicle(now);ctx.restore();if(state.flash>0){ctx.fillStyle=`rgba(255,70,70,${Math.min(.28,state.flash)})`;ctx.fillRect(0,0,W,H);}drawNearMissFx(now);drawStegoMessage(now);drawTriceratopsMessage(now);drawGreifMessage(now);drawOverlay();
 }
 function loop(now){const dt=Math.min(.035,(now-last)/1000);last=now;update(dt,now);draw(now);requestAnimationFrame(loop);}requestAnimationFrame(loop);
 
 window.addEventListener('keydown',e=>{
   if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code))e.preventDefault();
   if(e.code==='ArrowLeft'||e.code==='KeyA')keys.left=true;if(e.code==='ArrowRight'||e.code==='KeyD')keys.right=true;if(e.code==='ArrowUp'||e.code==='KeyW')keys.up=true;if(e.code==='ArrowDown'||e.code==='KeyS')keys.down=true;
-  if(e.code==='Space'&&!e.repeat){if(state.mode==='play')tryJump();else if(state.mode==='start'||['win','fail','fuelFail'].includes(state.mode))startCountdown();}
+  if(e.code==='Space'&&!e.repeat){
+    if(state.mode==='play')tryJump();
+    else if(state.mode==='bonusIntro')startBonusLevel();
+    else if(['fail','fuelFail'].includes(state.mode) && state.levelIndex===3){initLevel(3,'countdown');ensureAudio();state.countdown=3;state.countdownUntil=performance.now()+650;sfx('count');}
+    else if(state.mode==='start'||['fail','fuelFail'].includes(state.mode))startCountdown();
+    // In den Winscreens hat die Leertaste bewusst keine Funktion.
+  }
   if(e.code==='KeyP'){if(state.mode==='play')state.mode='paused';else if(state.mode==='paused')state.mode='play';}
   if(e.code==='KeyM'&&!e.repeat){soundMuted=!soundMuted;if(audioCtx&&soundMuted)audioCtx.suspend();else if(audioCtx&&!soundMuted)audioCtx.resume();}
   if(e.code==='KeyF'&&!e.repeat&&['play','paused','countdown'].includes(state.mode)){state.fuel=FUEL_MAX;updateHud();}
-  // TEST: 1/2/3 springt direkt zum jeweiligen Level, nicht in der Legende.
-  if(!e.repeat&&['Digit1','Digit2','Digit3'].includes(e.code)){const idx=Number(e.code.slice(-1))-1;initLevel(idx,'play');}
+  // TEST: E = Quitscheentchen eingesammelt.
+  if(e.code==='KeyE'&&!e.repeat){bonusDuckCollected=true;if(state.duck)state.duck=null;updateHud();}
+  // TEST: O = Kollisionen an/aus.
+  if(e.code==='KeyO'&&!e.repeat){testNoCollisions=!testNoCollisions;}
+  // TEST: L gewinnt den aktuellen Level, nicht in der Legende.
+  if(e.code==='KeyL'&&!e.repeat&&['play','paused'].includes(state.mode)){beginLevelExit();}
+  // TEST: 1/2/3 springt direkt zum jeweiligen Level, 4 zum Bonus-Level.
+  if(!e.repeat&&['Digit1','Digit2','Digit3','Digit4'].includes(e.code)){const idx=Number(e.code.slice(-1))-1;initLevel(idx,'play');}
 });
 window.addEventListener('keyup',e=>{if(e.code==='ArrowLeft'||e.code==='KeyA')keys.left=false;if(e.code==='ArrowRight'||e.code==='KeyD')keys.right=false;if(e.code==='ArrowUp'||e.code==='KeyW')keys.up=false;if(e.code==='ArrowDown'||e.code==='KeyS')keys.down=false;});
-restartBtn.addEventListener('click',reset);
+canvas.addEventListener('mousemove',e=>{
+  if(state.mode==='win'&&bonusDuckCollected){
+    const p=canvasPosFromEvent(e);
+    canvas.style.cursor=pointInRect(p.x,p.y,BONUS_BADGE)?'pointer':'default';
+  }else{
+    canvas.style.cursor='default';
+  }
+});
+canvas.addEventListener('mouseleave',()=>{canvas.style.cursor='default';});
+canvas.addEventListener('click',e=>{
+  if(state.mode==='win'&&bonusDuckCollected){
+    const p=canvasPosFromEvent(e);
+    if(pointInRect(p.x,p.y,BONUS_BADGE))openBonusPreview();
+  }
+});
+restartBtn.addEventListener('click',()=>{canvas.style.cursor='default';reset();});
 </script>
 </body>
 </html>
