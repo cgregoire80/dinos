@@ -170,12 +170,6 @@ const SPRITES={
     loadSprite('spino-rallye-assets/sprite_explosion3.webp'),
     loadSprite('spino-rallye-assets/sprite_explosion4.webp')
   ],
-  lava:[
-    loadSprite('spino-rallye-assets/sprite_lava1.webp'),
-    loadSprite('spino-rallye-assets/sprite_lava2.webp'),
-    loadSprite('spino-rallye-assets/sprite_lava3.webp'),
-    loadSprite('spino-rallye-assets/sprite_lava4.webp')
-  ],
   lavaBurst:[
     loadSprite('spino-rallye-assets/sprite_lavaburst1.webp'),
     loadSprite('spino-rallye-assets/sprite_lavaburst2.webp'),
@@ -260,10 +254,10 @@ const WILDBOAR_LANES=[160,235,310,385,460];
 const DUCK_W=50,DUCK_H=42,DUCK_HIT_W=38,DUCK_HIT_H=34;
 const BONUS_BADGE={x:W-50-136,y:50,w:136,h:98};
 const BONUS_GREIF_COUNT=5;
-const BONUS_LAVA_COUNT=12;
-const BONUS_AMBIENT_EXPLOSION_COUNT=100;
+const BONUS_LAVA_COUNT=20;
+const BONUS_AMBIENT_EXPLOSION_COUNT=140;
 const BONUS_BOMB_W=42,BONUS_BOMB_H=42;
-const BONUS_BOMB_TARGET_CX=W/2,BONUS_BOMB_TARGET_CY=300,BONUS_BOMB_TARGET_R=200,BONUS_BOMB_BLAST_R=100;
+const BONUS_BOMB_TARGET_CX=W/2,BONUS_BOMB_TARGET_CY=300,BONUS_BOMB_TARGET_R=200,BONUS_BOMB_BLAST_R=150;
 const BONUS_LAVA_W=188,BONUS_LAVA_H=92,BONUS_LAVA_HIT_W=132,BONUS_LAVA_HIT_H=54;
 const GREIF_DRAW_W=156,GREIF_DRAW_H=156;
 const GREIF_TAUNTS=[
@@ -339,7 +333,7 @@ function makeFuelSchedule(count=FUEL_ITEMS_TOTAL){
       return {spawnAt:Math.max(.8,arrival-FUEL_TRAVEL_LEAD),spawned:false};
     });
   }
-  // Bonus-Level: zwei zusätzliche Fuel-Items, über den ganzen Level verteilt.
+  // Bonus-Level: zusätzliche Fuel-Items, über den ganzen Level verteilt.
   const firstArrival=5.8,lastArrival=46.0;
   return Array.from({length:count},(_,i)=>{
     const t=count<=1?0:i/(count-1);
@@ -415,6 +409,7 @@ function lerp(a,b,t){return a+(b-a)*t;}
 
 function initLevel(levelIndex,mode='start'){
   const keepLevel=Math.max(0,Math.min(3,levelIndex));
+  testNoCollisions=false;
   state={
     levelIndex:keepLevel,mode,countdown:3,countdownUntil:0,
     elapsed:0,roadOffset:0,jeepX:W/2,jeepY:H-120,jeepTilt:0,
@@ -431,8 +426,8 @@ function initLevel(levelIndex,mode='start'){
     nearMissUntil:0,nearMissCooldown:0,
     exitSpeed:0,exitFinal:false
   };
-  state.fuelSchedule=makeFuelSchedule(keepLevel===3?FUEL_ITEMS_TOTAL+2:FUEL_ITEMS_TOTAL);
-  state.medipacSchedule=keepLevel===3?null:makeMedipacSchedule();
+  state.fuelSchedule=makeFuelSchedule(keepLevel===3?FUEL_ITEMS_TOTAL+4:FUEL_ITEMS_TOTAL);
+  state.medipacSchedule=makeMedipacSchedule();
   state.creekSchedule=makeCreekSchedule();
   if(keepLevel===0){
     state.wildboarSchedule=[
@@ -791,7 +786,7 @@ function spawnDuck(){
 function spawnBonusLavaBurst(){
   if(state.levelIndex!==3)return false;
   const fromLeft=Math.random()<.5;
-  // Fontänen nur dort, wo im Hintergrund tatsächlich Lava zu sehen ist:
+  // Lavabursts starten weiterhin in den Lava-Zonen des Hintergrunds:
   // links ca. x=120..220, rechts entsprechend x=W-220..W-120.
   const sourceX=fromLeft
     ? 120+Math.random()*100
@@ -811,10 +806,7 @@ function spawnBonusLavaBurst(){
     w:BONUS_LAVA_W,
     h:BONUS_LAVA_H,
     hitW:BONUS_LAVA_HIT_W,
-    hitH:BONUS_LAVA_HIT_H,
-    fountainW:106,
-    fountainH:148,
-    fountainOffsetY:10
+    hitH:BONUS_LAVA_HIT_H
   });
   return true;
 }
@@ -827,7 +819,8 @@ function randomBonusBombTarget(){
 function spawnBonusAmbientExplosion(item){
   if(state.levelIndex!==3)return false;
   const side=item.side==='right'?'right':'left';
-  const x=side==='left'?(24+Math.random()*58):(W-24-Math.random()*58);
+  // Randexplosionen: weiterhin außerhalb der Fahrbahn, aber teilweise näher an deren Mitte.
+  const x=side==='left'?(24+Math.random()*150):(W-24-Math.random()*150);
   // Explosion nicht dort platzieren, wo Greif gerade steht.
   let bestY=H/2,bestClear=-1;
   for(let attempt=0;attempt<36;attempt++){
@@ -941,7 +934,7 @@ function update(dt,now){
   const cfg=levelCfg(),p=progress01(),speed=cfg.baseScroll*lerp(1,cfg.endSpeed,p);
   state.roadOffset=(state.roadOffset+speed*dt)%120;state.distanceTravelled+=speed*dt;
   if(state.distanceTravelled>=state.spawnDistance&&spawnObstaclePattern()){
-    const gapFactor=state.levelIndex===3?1.125:.90;
+    const gapFactor=state.levelIndex===3?1.40:.90;
     const gapMin=lerp(cfg.gapStart[0],cfg.gapEnd[0],p)*gapFactor,gapMax=lerp(cfg.gapStart[1],cfg.gapEnd[1],p)*gapFactor;
     state.spawnDistance+=gapMin+Math.random()*(gapMax-gapMin);
   }
@@ -995,7 +988,12 @@ function update(dt,now){
     o.y+=speed*dt;
     if(o.type==='cloud')o.x=o.baseX+Math.sin(state.elapsed*.45+o.animPhase)*18;
     else if(o.type==='bird'){o.x=o.baseX+Math.sin(state.elapsed*2.10+o.animPhase)*24;o.rot=o.baseRot+Math.sin(state.elapsed*5.4+o.animPhase)*.06;}
-    else if(o.type==='buoy'){o.rot=o.baseRot+Math.sin(state.elapsed*1.80+o.animPhase)*.10;o.floatY=Math.sin(state.elapsed*2.35+o.animPhase)*4.5;}
+    else if(o.type==='buoy'){
+      const sway=Math.sin(state.elapsed*1.55+o.animPhase);
+      o.x=o.baseX+sway*20;
+      o.rot=o.baseRot+sway*.10;
+      o.floatY=Math.sin(state.elapsed*2.35+o.animPhase)*4.5;
+    }
   }
   for(const f of state.fuelItems){f.y+=speed*dt;f.spin+=dt*1.7;}
   for(const m of state.medipacItems){m.y+=speed*dt;m.bob+=dt*1.9;}
@@ -1328,35 +1326,8 @@ function drawObstacle(o){
     const age=o.age||0;
     const burstFrame=Math.floor(age*14)%3;
     const burstImg=SPRITES.lavaBurst&&SPRITES.lavaBurst[burstFrame];
-    const fountainFrame=Math.floor(age*12)%4;
-    const fountainImg=SPRITES.lava&&SPRITES.lava[fountainFrame];
 
-    // 1) Feste Lavafontäne am Fahrbahnrand (deutlich sichtbar).
-    const relX=(o.sourceX??o.x)-o.x;
-    const fw=o.fountainW||106, fh=o.fountainH||148;
-    ctx.save();
-    ctx.rotate(-o.rot);
-    if(spriteReady(fountainImg)){
-      ctx.drawImage(fountainImg,relX-fw/2,-fh+(o.fountainOffsetY||10),fw,fh);
-    }else{
-      const g=ctx.createLinearGradient(relX, -fh, relX, 10);
-      g.addColorStop(0,'#fff1a8');
-      g.addColorStop(.25,'#ffd14b');
-      g.addColorStop(.62,'#ff7b28');
-      g.addColorStop(1,'#c82612');
-      ctx.fillStyle=g;
-      ctx.beginPath();
-      ctx.moveTo(relX-18,6);
-      ctx.quadraticCurveTo(relX-8,-42,relX-2,-72);
-      ctx.quadraticCurveTo(relX+4,-124,relX+16,-32);
-      ctx.quadraticCurveTo(relX+22,-6,relX+26,10);
-      ctx.quadraticCurveTo(relX+6,0,relX-18,6);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.restore();
-
-    // 2) Heller Lavaschwall quer über die Fahrbahn.
+    // Lavaschwall/Lavaburst: nur der quer fliegende Lava-Sprite, keine Fontäne mehr.
     ctx.save();
     ctx.rotate(o.rot||0);
     if(!o.fromLeft)ctx.scale(-1,1);
@@ -1371,9 +1342,9 @@ function drawObstacle(o){
       grad.addColorStop(1,'rgba(255,95,24,.10)');
       ctx.fillStyle=grad;
       ctx.beginPath();
-      ctx.moveTo(-o.w*.34, o.h*.10);
-      ctx.quadraticCurveTo(-o.w*.14,-o.h*.66, o.w*.02,-o.h*.24);
-      ctx.quadraticCurveTo(o.w*.20,o.h*.02, o.w*.42,-o.h*.04);
+      ctx.moveTo(-o.w*.34,o.h*.10);
+      ctx.quadraticCurveTo(-o.w*.14,-o.h*.66,o.w*.02,-o.h*.24);
+      ctx.quadraticCurveTo(o.w*.20,o.h*.02,o.w*.42,-o.h*.04);
       ctx.quadraticCurveTo(o.w*.26,o.h*.22,-o.w*.16,o.h*.24);
       ctx.quadraticCurveTo(-o.w*.24,o.h*.20,-o.w*.34,o.h*.10);
       ctx.closePath();
@@ -1475,7 +1446,22 @@ function drawBomb(b){
     ctx.fillStyle='#ffb32f';ctx.beginPath();ctx.arc(13,-24,4,0,Math.PI*2);ctx.fill();
   }
   ctx.restore();
+  drawBombBlastRadius(b.targetX,b.targetY);
 }
+function drawBombBlastRadius(x,y){
+  ctx.save();
+  ctx.strokeStyle='rgba(255,70,70,.95)';
+  ctx.fillStyle='rgba(255,70,70,.10)';
+  ctx.lineWidth=3;
+  ctx.setLineDash([10,8]);
+  ctx.beginPath();
+  ctx.arc(x,y,BONUS_BOMB_BLAST_R,0,Math.PI*2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
 function drawExplosion(ex){
   const t=Math.min(1,ex.age/ex.dur);
   const idx=Math.min(3,Math.floor(t*4));
@@ -1493,6 +1479,7 @@ function drawExplosion(ex){
     ctx.strokeStyle='rgba(255,245,190,.92)';ctx.lineWidth=4;ctx.beginPath();ctx.arc(0,0,r*.74,0,Math.PI*2);ctx.stroke();
   }
   ctx.restore();
+  if(!ex.harmless)drawBombBlastRadius(ex.x,ex.y);
 }
 function drawBonusBadge(){
   if(!bonusDuckCollected)return;
@@ -1802,7 +1789,31 @@ function startBonusLevel(){
   sfx('count');
 }
 
+function drawLevelProgress(){
+  // Dezenter Fortschrittsbalken: leer bei Levelstart, nach 50 s voll.
+  // Oben und unten exakt derselbe Rand; bleibt bei Fehlschlag sichtbar.
+  if(!['countdown','play','paused','fail','fuelFail'].includes(state.mode))return;
+  const progress=Math.max(0,Math.min(1,progress01()));
+  const marginY=58;
+  const x=10,y=marginY,w=9,h=H-marginY*2;
+  ctx.save();
+  ctx.globalAlpha=.72;
+  ctx.fillStyle='rgba(0,0,0,.34)';
+  roundedRect(x-3,y-3,w+6,h+6,6);ctx.fill();
+  ctx.strokeStyle='rgba(243,211,92,.58)';ctx.lineWidth=1.5;
+  roundedRect(x-3,y-3,w+6,h+6,6);ctx.stroke();
+  const fillH=h*progress;
+  if(fillH>0){
+    ctx.fillStyle='rgba(243,211,92,.72)';
+    ctx.fillRect(x,y+h-fillH,w,fillH);
+    ctx.fillStyle='rgba(255,255,220,.62)';
+    ctx.fillRect(x,y+h-fillH,w,Math.min(2,fillH));
+  }
+  ctx.restore();
+}
+
 function drawOverlay(){
+  drawLevelProgress();
   if(state.mode==='start'){
     ctx.fillStyle='rgba(0,0,0,.58)';ctx.fillRect(W/2-190,H-94,380,52);ctx.textAlign='center';ctx.font='bold 24px system-ui';ctx.fillStyle='#f3d35c';ctx.fillText('Leertaste zum Start',W/2,H-60);ctx.textAlign='left';
   }else if(state.mode==='countdown'){
@@ -1831,7 +1842,7 @@ function drawOverlay(){
     ctx.fillStyle='#fff';ctx.font='bold 30px system-ui';
     ctx.fillText('BONUS-LEVEL (GC12345)',W/2,boxY+42);
     ctx.font='19px system-ui';ctx.fillStyle='#f3d35c';
-    drawCenteredWrappedText('Spiono hat ein Quitscheentchen von Prof. Dr. Tyrannus Greif gefunden. Es führt ihn tief in dessen Lava-Katakomben. Hilf Spiono nun mit seiner raketengetriebenen Minenlore nun dabei, alle Quitscheentchen zu befreien. Sie werden dir gewiss sehr dankbar sein.',W/2,boxY+82,680,27);
+    drawCenteredWrappedText('Spiono hat ein Quitscheentchen von Prof. Dr. Tyrannus Greif gefunden. Es führt ihn tief in dessen Lava-Katakomben. Hilf Spiono mit seiner raketengetriebenen Minenlore nun dabei, alle Quitscheentchen zu befreien. Sie werden dir gewiss sehr dankbar sein.',W/2,boxY+82,680,27);
     ctx.font='bold 22px system-ui';ctx.fillStyle='#fff';
     ctx.fillText('Leertaste zum Start',W/2,boxY+202);
     ctx.textAlign='left';
@@ -1882,14 +1893,15 @@ window.addEventListener('keydown',e=>{
   }
   if(e.code==='KeyP'){if(state.mode==='play')state.mode='paused';else if(state.mode==='paused')state.mode='play';}
   if(e.code==='KeyM'&&!e.repeat){soundMuted=!soundMuted;if(audioCtx&&soundMuted)audioCtx.suspend();else if(audioCtx&&!soundMuted)audioCtx.resume();}
+  // TEST: F = Tank vollständig auffüllen.
   if(e.code==='KeyF'&&!e.repeat&&['play','paused','countdown'].includes(state.mode)){state.fuel=FUEL_MAX;updateHud();}
   // TEST: E = Quitscheentchen eingesammelt.
   if(e.code==='KeyE'&&!e.repeat){bonusDuckCollected=true;if(state.duck)state.duck=null;updateHud();}
-  // TEST: O = Kollisionen an/aus.
+  // TEST: O = Kollisionen an/aus. Wird bei jedem Levelstart automatisch zurückgesetzt.
   if(e.code==='KeyO'&&!e.repeat){testNoCollisions=!testNoCollisions;}
-  // TEST: L gewinnt den aktuellen Level, nicht in der Legende.
+  // TEST: L = aktuellen Level sofort gewinnen.
   if(e.code==='KeyL'&&!e.repeat&&['play','paused'].includes(state.mode)){beginLevelExit();}
-  // TEST: 1/2/3 springt direkt zum jeweiligen Level, 4 zum Bonus-Level.
+  // TEST: 1/2/3/4 = Level direkt starten.
   if(!e.repeat&&['Digit1','Digit2','Digit3','Digit4'].includes(e.code)){const idx=Number(e.code.slice(-1))-1;initLevel(idx,'play');}
 });
 window.addEventListener('keyup',e=>{if(e.code==='ArrowLeft'||e.code==='KeyA')keys.left=false;if(e.code==='ArrowRight'||e.code==='KeyD')keys.right=false;if(e.code==='ArrowUp'||e.code==='KeyW')keys.up=false;if(e.code==='ArrowDown'||e.code==='KeyS')keys.down=false;});
